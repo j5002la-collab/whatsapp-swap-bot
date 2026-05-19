@@ -113,6 +113,15 @@ async def lifespan(app: FastAPI):
     swap_orchestrator.set_ws(boltz_ws)
     asyncio.create_task(boltz_ws.connect())
 
+    # Initialize ChangeNOW client for stablecoin swaps
+    changenow_key = os.getenv("CHANGENOW_API_KEY", "")
+    if changenow_key:
+        from swapbot.changenow.client import init_cn_client
+        init_cn_client(changenow_key)
+        logger.info("ChangeNOW client initialized for USDT/USDC swaps")
+    else:
+        logger.warning("CHANGENOW_API_KEY not set — stablecoin swaps disabled")
+
     # Start scheduled jobs
     start_cleanup_scheduler(db)
     start_raffle_scheduler(raffle_engine, openwa_client)

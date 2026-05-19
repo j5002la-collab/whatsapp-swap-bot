@@ -38,8 +38,8 @@ async def handle_swap_start(router, phone_hash, chat_id, body, state):
 DIR_MAP = {
     "1": "btc_ln",
     "2": "ln_btc",
-    "3": "usdt_btc",
-    "4": "btc_usdt",
+    "3": "stable_to_btc",
+    "4": "btc_to_stable",
 }
 
 
@@ -63,22 +63,13 @@ async def handle_direction_selection(router, phone_hash, chat_id, body, state):
         await router.openwa.send_text(chat_id, address_prompt())
         return
 
-    # For stablecoin swaps, ask for amount
-    rate = await router.rates.get_rate("chain", "USDT" if direction == "usdt_btc" else "BTC",
-                                         "BTC" if direction == "usdt_btc" else "USDT")
-    if not rate:
-        await router.openwa.send_text(chat_id, service_unavailable())
-        state.reset()
-        await update_user_state(router.db, phone_hash, None)
+    # Stablecoin: show stablecoin selection (USDT/USDC)
+    if direction in ("stable_to_btc", "btc_to_stable"):
+        state.select_stablecoin_direction(direction)
+        await update_user_state(router.db, phone_hash, json.dumps(state.to_dict()))
+        from swapbot.bot.messages import stablecoin_direction_menu
+        await router.openwa.send_text(chat_id, stablecoin_direction_menu())
         return
-
-    state.session.rate_info = rate
-    direction_label = {"usdt_btc": "USDT → BTC", "btc_usdt": "BTC → USDT"}[direction]
-    await update_user_state(router.db, phone_hash, json.dumps(state.to_dict()))
-    await router.openwa.send_text(
-        chat_id,
-        amount_prompt(direction_label, rate.min_amount, rate.max_amount)
-    )
 
 
 # ── Invoice Entry (BTC → LN) ──
@@ -295,6 +286,436 @@ async def _execute_reverse(router, phone_hash, chat_id, state):
 
     state.confirm()
     await update_user_state(router.db, phone_hash, json.dumps(state.to_dict()))
+
+
+# ── Stablecoin Swap Flow (ChangeNOW) ──
+
+STABLECOIN_DIR_MAP = {
+    "1": "stable_to_btc",
+    "2": "stable_to_btc",  # USDC→BTC
+    "3": "btc_to_stable",
+    "4": "btc_to_stable",  # BTC→USDC
+}
+
+USDT_NET_MAP = {"1": "TRC-20", "2": "ERC-20", "3": "BEP-20", "4": "ARBITRUM", "5": "SOLANA", "6": "POLYGON", "7": "OPTIMISM", "8": "AVALANCHE", "9": "BASE"}
+USDC_NET_MAP = {"1": "ERC-20", "2": "ARBITRUM", "3": "BASE", "4": "SOLANA", "5": "POLYGON", "6": "OPTIMISM", "7": "AVALANCHE", "8": "BEP-20"}
+
+
+async def handle_stablecoin_selection(router, phone_hash, chat_id, body, state):
+    """User selects USDT→BTC or USDC→BTC or BTC→USDT or BTC→USDC."""
+    from swapbot.bot.messages import (
+        stablecoin_direction_menu, network_menu_USDT, network_menu_USDC,
+    )
+
+    body = body.strip()
+    opt = STABLECOIN_DIR_MAP.get(body)
+    if not opt:
+        await router.openwa.send_text(chat_id, "Selecciona 1, 2, 3 o 4:\n\n" + stablecoin_direction_menu())
+        return
+
+    direction = opt
+    if body == "2":
+        currency = "USDC"
+        direction = "stable_to_btc"
+    elif body == "4":
+        currency = "USDC"
+        direction = "btc_to_stable"
+    elif body == "1":
+        currency = "USDT"
+    else:  # body == "3"
+        currency = "USDT"
+
+    state.session.stable_currency = currency
+    state.session.direction = direction
+
+    if direction == "stable_to_btc":
+        state.state = UserStateType.SELECTING_NETWORK
+        await update_user_state(router.db, phone_hash, json.dumps(state.to_dict()))
+        if currency == "USDT":
+            await router.openwa.send_text(chat_id, network_menu_USDT())
+        else:
+            await router.openwa.send_text(chat_id, network_menu_USDC())
+    else:
+        # btc_to_stable: first ask for dest network
+        state.state = UserStateType.SELECTING_DEST_NETWORK
+        await update_user_state(router.db, phone_hash, json.dumps(state.to_dict()))
+        from swapbot.bot.messages import network_menu_dest_USDT as ndu
+        from swapbot.bot.messages import network_menu_dest_USDC as ndc
+        if currency == "USDT":
+            await router.openwa.send_text(chat_id, ndu())
+        else:
+            await router.openwa.send_text(chat_id, ndc())
+
+
+async def handle_network_selection(router, phone_hash, chat_id, body, state):
+    """User selects source network for stablecoin→BTC swap."""
+    currency = state.session.stable_currency
+    net_map = USDT_NET_MAP if currency == "USDT" else USDC_NET_MAP
+    network = net_map.get(body.strip())
+
+    if not network:
+        from swapbot.bot.messages import network_menu_USDT, network_menu_USDC
+        menu = network_menu_USDT() if currency == "USDT" else network_menu_USDC()
+        await router.openwa.send_text(chat_id, f"Selecciona un número válido:\n\n{menu}")
+        return
+
+    state.session.stable_network = network
+
+    # Get ChangeNOW estimate to show rate
+    from swapbot.changenow.client import get_cn_client
+    cn = get_cn_client()
+    if not cn:
+        await router.openwa.send_text(chat_id, service_unavailable())
+        state.reset()
+        await update_user_state(router.db, phone_hash, None)
+        return
+
+    ticker_info = cn.get_ticker(currency, network)
+    if not ticker_info:
+        await router.openwa.send_text(chat_id, f"Red {network} no soportada.")
+        state.reset()
+        await update_user_state(router.db, phone_hash, None)
+        return
+
+    # Get min amount
+    try:
+        min_str = await cn.get_min_amount(
+            ticker_info["ticker"], "btc", ticker_info["network"], "btc"
+        )
+        min_amount = float(min_str)
+    except Exception:
+        min_amount = 1.0
+
+    # Ask for amount
+    state.state = UserStateType.ENTERING_AMOUNT
+    await update_user_state(router.db, phone_hash, json.dumps(state.to_dict()))
+    await router.openwa.send_text(
+        chat_id,
+        f"💰 *{currency} ({network}) → BTC*\n\n"
+        f"Ingresa el monto en {currency}:\n"
+        f"Mín: {min_amount:.2f} {currency}\n\n"
+        "Responde con el número."
+    )
+
+
+async def handle_dest_network_selection(router, phone_hash, chat_id, body, state):
+    """User selects destination network for BTC→stablecoin swap."""
+    currency = state.session.stable_currency
+    net_map = USDT_NET_MAP if currency == "USDT" else USDC_NET_MAP
+    network = net_map.get(body.strip())
+
+    if not network:
+        from swapbot.bot.messages import network_menu_dest_USDT, network_menu_dest_USDC
+        menu = network_menu_dest_USDT() if currency == "USDT" else network_menu_dest_USDC()
+        await router.openwa.send_text(chat_id, f"Selecciona un número válido:\n\n{menu}")
+        return
+
+    state.session.stable_dest_network = network
+
+    # Ask for destination address
+    state.state = UserStateType.ENTERING_ADDRESS_STABLE
+    await update_user_state(router.db, phone_hash, json.dumps(state.to_dict()))
+    from swapbot.bot.messages import address_prompt_stable
+    await router.openwa.send_text(
+        chat_id,
+        address_prompt_stable(currency, network)
+    )
+
+
+async def handle_address_entry_stable(router, phone_hash, chat_id, body, state):
+    """User provides destination address for BTC→stablecoin swap, then enter BTC amount."""
+    body = body.strip()
+    if len(body) < 10:
+        await router.openwa.send_text(chat_id, "Dirección demasiado corta. Intenta de nuevo.")
+        return
+
+    state.session.dest_address = body
+
+    # Ask for BTC amount
+    state.state = UserStateType.ENTERING_AMOUNT
+    await update_user_state(router.db, phone_hash, json.dumps(state.to_dict()))
+    await router.openwa.send_text(
+        chat_id,
+        f"💰 *BTC → {state.session.stable_currency} ({state.session.stable_dest_network})*\n\n"
+        "Ingresa el monto en sats:\n"
+        "Mín: 50,000 | Máx: 5,000,000\n\n"
+        "Responde con el número."
+    )
+
+
+async def handle_amount_entry_stable(router, phone_hash, chat_id, body, state):
+    """Handle amount entry for stablecoin swaps."""
+    try:
+        amount = float(body.strip().replace(",", "").replace(" ", ""))
+    except ValueError:
+        await router.openwa.send_text(chat_id, "Ingresa un número válido.")
+        return
+
+    if amount <= 0:
+        await router.openwa.send_text(chat_id, "El monto debe ser mayor a 0.")
+        return
+
+    direction = state.session.direction
+    currency = state.session.stable_currency
+
+    if direction == "btc_to_stable":
+        amount = int(amount)  # sats
+        if amount < 50000:
+            await router.openwa.send_text(chat_id, "Monto mínimo: 50,000 sats.")
+            return
+        state.session.source_amount = amount
+        await _prepare_stable_confirmation_btc_to_stable(router, phone_hash, chat_id, state, amount)
+    else:
+        # stable_to_btc: amount in stablecoin units
+        state.session.stable_source_amount = amount
+        await _prepare_stable_confirmation_stable_to_btc(router, phone_hash, chat_id, state, amount)
+
+
+async def _prepare_stable_confirmation_stable_to_btc(router, phone_hash, chat_id, state, amount):
+    """Get ChangeNOW estimate and show confirmation for stable→BTC."""
+    from swapbot.changenow.client import get_cn_client
+    cn = get_cn_client()
+    if not cn:
+        await router.openwa.send_text(chat_id, service_unavailable())
+        state.reset()
+        await update_user_state(router.db, phone_hash, None)
+        return
+
+    currency = state.session.stable_currency
+    network = state.session.stable_network
+    ticker_info = cn.get_ticker(currency, network)
+    if not ticker_info:
+        await router.openwa.send_text(chat_id, f"Red {network} no soportada para {currency}.")
+        state.reset()
+        await update_user_state(router.db, phone_hash, None)
+        return
+
+    try:
+        estimate = await cn.estimate(
+            ticker_info["ticker"], "btc",
+            str(amount), ticker_info["network"], "btc"
+        )
+        to_amount = float(estimate.get("toAmount", 0))
+        rate_id = estimate.get("rateId", "")
+    except Exception as e:
+        logger.error(f"ChangeNOW estimate error: {e}")
+        await router.openwa.send_text(chat_id, service_unavailable())
+        state.reset()
+        await update_user_state(router.db, phone_hash, None)
+        return
+
+    state.session.stable_dest_amount = to_amount
+    state.session.stable_rate_id = rate_id
+
+    direction_label = f"{currency} ({network}) → BTC"
+    state.state = UserStateType.CONFIRMING
+    await update_user_state(router.db, phone_hash, json.dumps(state.to_dict()))
+
+    from swapbot.bot.messages import confirm_message_stable
+    await router.openwa.send_text(
+        chat_id,
+        confirm_message_stable(
+            direction_label, amount, currency, to_amount, "BTC",
+            network, "Bitcoin"
+        )
+    )
+
+
+async def _prepare_stable_confirmation_btc_to_stable(router, phone_hash, chat_id, state, amount):
+    """Get ChangeNOW estimate and show confirmation for BTC→stable."""
+    from swapbot.changenow.client import get_cn_client
+    cn = get_cn_client()
+    if not cn:
+        await router.openwa.send_text(chat_id, service_unavailable())
+        state.reset()
+        await update_user_state(router.db, phone_hash, None)
+        return
+
+    currency = state.session.stable_currency
+    dest_network = state.session.stable_dest_network
+    ticker_info = cn.get_ticker(currency, dest_network)
+    if not ticker_info:
+        await router.openwa.send_text(chat_id, f"Red {dest_network} no soportada para {currency}.")
+        state.reset()
+        await update_user_state(router.db, phone_hash, None)
+        return
+
+    try:
+        # Convert sats to BTC for estimate
+        btc_amount = amount / 100_000_000
+        estimate = await cn.estimate(
+            "btc", ticker_info["ticker"],
+            f"{btc_amount:.8f}", "btc", ticker_info["network"]
+        )
+        to_amount = float(estimate.get("toAmount", 0))
+        rate_id = estimate.get("rateId", "")
+    except Exception as e:
+        logger.error(f"ChangeNOW estimate error: {e}")
+        await router.openwa.send_text(chat_id, service_unavailable())
+        state.reset()
+        await update_user_state(router.db, phone_hash, None)
+        return
+
+    state.session.stable_dest_amount = to_amount
+    state.session.stable_rate_id = rate_id
+
+    direction_label = f"BTC → {currency} ({dest_network})"
+    state.state = UserStateType.CONFIRMING
+    await update_user_state(router.db, phone_hash, json.dumps(state.to_dict()))
+
+    from swapbot.bot.messages import confirm_message_stable
+    await router.openwa.send_text(
+        chat_id,
+        confirm_message_stable(
+            direction_label, amount / 100_000_000, "BTC", to_amount, currency,
+            "Bitcoin", dest_network
+        )
+    )
+
+
+async def handle_confirmation_stable(router, phone_hash, chat_id, body, state):
+    """Handle confirmation for stablecoin swaps."""
+    body = body.strip().lower()
+
+    if body in ("no", "n", "cancelar", "cancel"):
+        state.reset()
+        await update_user_state(router.db, phone_hash, None)
+        await router.openwa.send_text(chat_id, swap_cancelled())
+        return
+
+    if body not in ("si", "sí", "s", "yes", "y", "confirmar", "confirm", "ok"):
+        await router.openwa.send_text(chat_id, 'Responde *si* para confirmar o *no* para cancelar.')
+        return
+
+    # Execute ChangeNOW swap
+    from swapbot.changenow.client import get_cn_client
+    cn = get_cn_client()
+    if not cn:
+        await router.openwa.send_text(chat_id, service_unavailable())
+        state.reset()
+        await update_user_state(router.db, phone_hash, None)
+        return
+
+    await router.openwa.send_text(chat_id, "⏳ Creando intercambio...")
+
+    try:
+        direction = state.session.direction
+        currency = state.session.stable_currency
+        network = state.session.stable_network
+        dest_network = state.session.stable_dest_network
+
+        if direction == "stable_to_btc":
+            ticker_info = cn.get_ticker(currency, network)
+            params = {
+                "fromCurrency": ticker_info["ticker"],
+                "toCurrency": "btc",
+                "fromNetwork": ticker_info["network"],
+                "toNetwork": "btc",
+                "fromAmount": str(state.session.stable_source_amount),
+                "toAmount": str(state.session.stable_dest_amount),
+                "address": state.session.dest_address or "",
+                "flow": "fixed-rate",
+                "rateId": state.session.stable_rate_id,
+            }
+        else:  # btc_to_stable
+            ticker_info = cn.get_ticker(currency, dest_network)
+            params = {
+                "fromCurrency": "btc",
+                "toCurrency": ticker_info["ticker"],
+                "fromNetwork": "btc",
+                "toNetwork": ticker_info["network"],
+                "fromAmount": f"{state.session.source_amount / 100_000_000:.8f}",
+                "toAmount": str(state.session.stable_dest_amount),
+                "address": state.session.dest_address or "",
+                "flow": "fixed-rate",
+                "rateId": state.session.stable_rate_id,
+            }
+
+        exchange = await cn.create_exchange(params)
+        exchange_id = exchange.get("id", "")
+        payin_address = exchange.get("payinAddress", "")
+        payout_address = exchange.get("payoutAddress", "")
+        from_amount = exchange.get("amount", {}).get("from", str(state.session.stable_source_amount or state.session.source_amount))
+        memo = exchange.get("extraId") or None
+
+        state.session.swap_id = exchange_id
+        state.session.stable_payin_address = payin_address
+        state.session.stable_memo = memo
+        state.confirm()
+        await update_user_state(router.db, phone_hash, json.dumps(state.to_dict()))
+
+        from swapbot.bot.messages import changenow_exchange_created
+        if direction == "stable_to_btc":
+            await router.openwa.send_text(
+                chat_id,
+                changenow_exchange_created(
+                    exchange_id, payin_address, from_amount, currency, network, memo
+                )
+            )
+        else:
+            await router.openwa.send_text(
+                chat_id,
+                changenow_exchange_created(
+                    exchange_id, payin_address, from_amount, "BTC", "Bitcoin", memo
+                )
+            )
+
+        # Start polling for status
+        asyncio.create_task(_poll_changenow_status(
+            router, chat_id, exchange_id, phone_hash, state
+        ))
+
+    except Exception as e:
+        logger.error(f"ChangeNOW create error: {e}")
+        await router.openwa.send_text(chat_id, service_unavailable())
+        state.reset()
+        await update_user_state(router.db, phone_hash, None)
+
+
+async def _poll_changenow_status(router, chat_id, exchange_id, phone_hash, state, max_polls=60):
+    """Poll ChangeNOW for exchange status and notify user."""
+    from swapbot.changenow.client import get_cn_client
+    cn = get_cn_client()
+    if not cn:
+        return
+
+    last_status = ""
+    for i in range(max_polls):
+        await asyncio.sleep(30)  # Poll every 30 seconds
+        try:
+            status_data = await cn.get_status(exchange_id)
+            status = status_data.get("status", "")
+
+            from swapbot.bot.messages import changenow_status
+            if status != last_status and status in ("confirming", "exchanging", "sending"):
+                await router.openwa.send_text(chat_id, changenow_status(status))
+                last_status = status
+
+            if status == "finished":
+                await router.openwa.send_text(chat_id, changenow_status(status))
+                # Record swap in DB
+                await increment_rate_limit(router.db, phone_hash)
+                await increment_user_swaps(
+                    router.db, phone_hash,
+                    int(state.session.source_amount or 0)
+                )
+                state.complete()
+                await update_user_state(router.db, phone_hash, None)
+                return
+
+            if status in ("failed", "refunded"):
+                await router.openwa.send_text(chat_id, changenow_status(status))
+                state.reset()
+                await update_user_state(router.db, phone_hash, None)
+                return
+
+        except Exception as e:
+            logger.error(f"ChangeNOW poll error: {e}")
+            if i >= max_polls - 1:
+                await router.openwa.send_text(
+                    chat_id, "⏰ El intercambio está tardando. Te notificaré cuando se complete."
+                )
+                return
 
 
 # ── Rates ──

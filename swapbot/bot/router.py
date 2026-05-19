@@ -110,6 +110,12 @@ class MessageRouter:
             handle_cancel,
             handle_admin,
             handle_default,
+            handle_stablecoin_selection,
+            handle_network_selection,
+            handle_dest_network_selection,
+            handle_address_entry_stable,
+            handle_amount_entry_stable,
+            handle_confirmation_stable,
         )
 
         # Check if admin command
@@ -129,6 +135,18 @@ class MessageRouter:
             await handle_direction_selection(
                 self, phone_hash, chat_id, body, state
             )
+        elif state.state == UserStateType.SELECTING_STABLECOIN:
+            await handle_stablecoin_selection(
+                self, phone_hash, chat_id, body, state
+            )
+        elif state.state == UserStateType.SELECTING_NETWORK:
+            await handle_network_selection(
+                self, phone_hash, chat_id, body, state
+            )
+        elif state.state == UserStateType.SELECTING_DEST_NETWORK:
+            await handle_dest_network_selection(
+                self, phone_hash, chat_id, body, state
+            )
         elif state.state == UserStateType.ENTERING_INVOICE:
             await handle_invoice_entry(
                 self, phone_hash, chat_id, body, state
@@ -137,14 +155,24 @@ class MessageRouter:
             await handle_address_entry(
                 self, phone_hash, chat_id, body, state
             )
+        elif state.state == UserStateType.ENTERING_ADDRESS_STABLE:
+            await handle_address_entry_stable(
+                self, phone_hash, chat_id, body, state
+            )
         elif state.state == UserStateType.ENTERING_AMOUNT:
             await handle_amount_entry(
                 self, phone_hash, chat_id, body, state
             )
         elif state.state == UserStateType.CONFIRMING:
-            await handle_confirmation(
-                self, phone_hash, chat_id, body, state
-            )
+            # Check if stablecoin swap
+            if state.session.direction in ("stable_to_btc", "btc_to_stable"):
+                await handle_confirmation_stable(
+                    self, phone_hash, chat_id, body, state
+                )
+            else:
+                await handle_confirmation(
+                    self, phone_hash, chat_id, body, state
+                )
         elif state.state == UserStateType.AWAITING_PAYMENT:
             # User is in an active swap - don't start a new one
             await self.openwa.send_text(

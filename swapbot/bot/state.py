@@ -11,9 +11,13 @@ from swapbot.engine.commission import FeeBreakdown
 class UserStateType(Enum):
     IDLE = "idle"
     SELECTING_DIRECTION = "selecting_direction"
+    SELECTING_STABLECOIN = "selecting_stablecoin"
+    SELECTING_NETWORK = "selecting_network"
+    SELECTING_DEST_NETWORK = "selecting_dest_network"
     ENTERING_AMOUNT = "entering_amount"
     ENTERING_INVOICE = "entering_invoice"
     ENTERING_ADDRESS = "entering_address"
+    ENTERING_ADDRESS_STABLE = "entering_address_stable"
     CONFIRMING = "confirming"
     AWAITING_PAYMENT = "awaiting_payment"
     COMPLETE = "complete"
@@ -22,8 +26,8 @@ class UserStateType(Enum):
 @dataclass
 class SwapSession:
     """Active swap session data for a user."""
-    direction: str | None = None          # btc_ln, ln_btc, usdt_btc, btc_usdt
-    source_amount: int | None = None      # in sats
+    direction: str | None = None          # btc_ln, ln_btc, stable_to_btc, btc_to_stable
+    source_amount: int | None = None      # in sats or cents
     dest_amount: int | None = None
     invoice: str | None = None            # Lightning invoice
     dest_address: str | None = None       # BTC on-chain address
@@ -32,6 +36,15 @@ class SwapSession:
     swap_id: str | None = None
     boltz_address: str | None = None      # Boltz deposit address
     boltz_expected_amount: int | None = None
+    # Stablecoin fields
+    stable_currency: str | None = None    # "USDT" or "USDC"
+    stable_network: str | None = None     # e.g. "TRC-20", "ERC-20"
+    stable_dest_network: str | None = None
+    stable_source_amount: float | None = None  # in USDT/USDC units
+    stable_dest_amount: float | None = None
+    stable_rate_id: str | None = None     # ChangeNOW rateId
+    stable_payin_address: str | None = None
+    stable_memo: str | None = None        # Memo/tag for some chains
 
 
 @dataclass
@@ -45,6 +58,11 @@ class UserState:
         """Transition to direction selection."""
         self.state = UserStateType.SELECTING_DIRECTION
         self.session = SwapSession()
+
+    def select_stablecoin_direction(self, direction: str):
+        """User selected stablecoin direction."""
+        self.session.direction = direction
+        self.state = UserStateType.SELECTING_STABLECOIN
 
     def select_direction(self, direction: str):
         """User selected a swap direction."""
@@ -85,6 +103,12 @@ class UserState:
             "invoice": self.session.invoice,
             "dest_address": self.session.dest_address,
             "swap_id": self.session.swap_id,
+            "stable_currency": self.session.stable_currency,
+            "stable_network": self.session.stable_network,
+            "stable_dest_network": self.session.stable_dest_network,
+            "stable_source_amount": self.session.stable_source_amount,
+            "stable_dest_amount": self.session.stable_dest_amount,
+            "stable_rate_id": self.session.stable_rate_id,
         }
 
     @classmethod
@@ -102,4 +126,10 @@ class UserState:
         us.session.invoice = data.get("invoice")
         us.session.dest_address = data.get("dest_address")
         us.session.swap_id = data.get("swap_id")
+        us.session.stable_currency = data.get("stable_currency")
+        us.session.stable_network = data.get("stable_network")
+        us.session.stable_dest_network = data.get("stable_dest_network")
+        us.session.stable_source_amount = data.get("stable_source_amount")
+        us.session.stable_dest_amount = data.get("stable_dest_amount")
+        us.session.stable_rate_id = data.get("stable_rate_id")
         return us

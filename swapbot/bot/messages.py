@@ -25,8 +25,8 @@ def direction_menu() -> str:
         "*Selecciona dirección:*\n"
         "1. BTC → Lightning ⚡\n"
         "2. Lightning ⚡ → BTC\n"
-        "3. USDT → BTC\n"
-        "4. BTC → USDT\n\n"
+        "3. USDT/USDC → BTC\n"
+        "4. BTC → USDT/USDC\n\n"
         "Responde con el número."
     )
 
@@ -255,6 +255,154 @@ def admin_unauthorized() -> str:
 
 
 # --- Raffle ---
+
+# --- Stablecoin Direction Menu ---
+
+def stablecoin_direction_menu() -> str:
+    return (
+        "💵 *Stablecoins*\n\n"
+        "Selecciona par de intercambio:\n"
+        "1. USDT → BTC\n"
+        "2. USDC → BTC\n"
+        "3. BTC → USDT\n"
+        "4. BTC → USDC\n\n"
+        "Responde con el número."
+    )
+
+
+# --- Network Selection Menus ---
+
+def network_menu_USDT() -> str:
+    return (
+        "🌐 *Red de USDT*\n\n"
+        "1. TRC-20 (Tron)\n"
+        "2. ERC-20 (Ethereum)\n"
+        "3. BEP-20 (BSC)\n"
+        "4. ARBITRUM\n"
+        "5. SOLANA\n"
+        "6. POLYGON\n"
+        "7. OPTIMISM\n"
+        "8. AVALANCHE\n"
+        "9. BASE\n\n"
+        "Responde con el número."
+    )
+
+
+def network_menu_USDC() -> str:
+    return (
+        "🌐 *Red de USDC*\n\n"
+        "1. ERC-20 (Ethereum)\n"
+        "2. ARBITRUM\n"
+        "3. BASE\n"
+        "4. SOLANA\n"
+        "5. POLYGON\n"
+        "6. OPTIMISM\n"
+        "7. AVALANCHE\n"
+        "8. BEP-20 (BSC)\n\n"
+        "Responde con el número."
+    )
+
+
+def network_menu_dest_USDT() -> str:
+    return (
+        "🌐 *Recibir USDT en red:*\n\n"
+        "1. TRC-20 (Tron)\n"
+        "2. ERC-20 (Ethereum)\n"
+        "3. BEP-20 (BSC)\n"
+        "4. ARBITRUM\n"
+        "5. SOLANA\n"
+        "6. POLYGON\n"
+        "7. OPTIMISM\n"
+        "8. AVALANCHE\n"
+        "9. BASE\n\n"
+        "Responde con el número."
+    )
+
+
+def network_menu_dest_USDC() -> str:
+    return (
+        "🌐 *Recibir USDC en red:*\n\n"
+        "1. ERC-20 (Ethereum)\n"
+        "2. ARBITRUM\n"
+        "3. BASE\n"
+        "4. SOLANA\n"
+        "5. POLYGON\n"
+        "6. OPTIMISM\n"
+        "7. AVALANCHE\n"
+        "8. BEP-20 (BSC)\n\n"
+        "Responde con el número."
+    )
+
+
+def address_prompt_stable(currency: str, network: str) -> str:
+    return (
+        f"📥 *Recibir {currency} en {network}*\n\n"
+        f"Pega tu dirección de {currency} en {network}\n"
+        "donde recibirás los fondos.\n\n"
+        "Responde con la dirección."
+    )
+
+
+# --- Stablecoin Confirm Message ---
+
+def confirm_message_stable(
+    direction_label: str,
+    from_amount: float,
+    from_currency: str,
+    to_amount: float,
+    to_currency: str,
+    network: str,
+    dest_network: str,
+) -> str:
+    return (
+        f"📋 *Confirmar {direction_label}*\n\n"
+        f"Envías: {from_amount:.2f} {from_currency} ({network})\n"
+        f"Recibes: ~{to_amount:.8f} {to_currency} ({dest_network})\n\n"
+        "*Comisión incluida en la tasa*\n"
+        "⏱ Tiempo estimado: 5-30 minutos\n\n"
+        "Responde *si* para confirmar o *no* para cancelar."
+    )
+
+
+# --- ChangeNOW Exchange Created ---
+
+def changenow_exchange_created(
+    exchange_id: str,
+    payin_address: str,
+    from_amount: str,
+    from_currency: str,
+    from_network: str,
+    memo: str | None = None,
+) -> str:
+    msg = (
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "✅ *INTERCAMBIO CREADO*\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"📤 Envía *{from_amount} {from_currency}* en *{from_network}* a:\n\n"
+        f"`{payin_address}`\n"
+    )
+    if memo:
+        msg += f"\n⚠️ *Memo/Tag requerido:* `{memo}`\n"
+    msg += (
+        f"\nID: `{exchange_id}`\n\n"
+        "⏳ _Procesando intercambio..._"
+    )
+    return msg
+
+
+def changenow_status(status: str) -> str:
+    """Translate ChangeNOW status to user-friendly message."""
+    status_map = {
+        "waiting": "⏳ Esperando depósito...",
+        "confirming": "🔍 Confirmando transacción...",
+        "exchanging": "🔄 Intercambiando...",
+        "sending": "📤 Enviando a tu dirección...",
+        "finished": "✅ *¡Intercambio completado!*",
+        "failed": "❌ Intercambio fallido. Contacta a soporte.",
+        "refunded": "↩️ Fondos reembolsados a tu dirección.",
+    }
+    return status_map.get(status, f"Estado: {status}")
+
 
 def raffle_status(week: int, pool: int, participants: int, paid: bool, winner: str | None = None) -> str:
     lines = [

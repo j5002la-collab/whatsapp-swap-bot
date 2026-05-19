@@ -8,7 +8,6 @@ import httpx
 from typing import Any
 
 from .types import (
-    SubmarinePairFees,
     BoltzPair,
     BoltzPairLimits,
     BoltzPairFees,

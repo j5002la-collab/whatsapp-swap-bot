@@ -87,7 +87,7 @@ async def lifespan(app: FastAPI):
 
     rate_engine = RateEngine(boltz_client)
     commission_engine = CommissionEngine(COMMISSION_RATE)
-    raffle_engine = RaffleEngine(db)
+    raffle_engine = RaffleEngine()
     swap_orchestrator = SwapOrchestrator(boltz_client, db, commission_engine, raffle_engine)
 
     msg_router = MessageRouter(

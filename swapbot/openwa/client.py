@@ -122,7 +122,8 @@ class OpenWAClient:
                 },
             )
             create_data = create_resp.json()
-            if create_data.get("success"):
+            # OpenWA returns 201 with webhook object directly, or 200 with wrapped format
+            if create_resp.status_code in (200, 201) and ("id" in create_data or create_data.get("success")):
                 logger.info(f"Webhook registered: {webhook_url}")
                 return True
             else:

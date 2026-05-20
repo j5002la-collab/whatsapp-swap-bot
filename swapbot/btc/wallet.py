@@ -136,7 +136,7 @@ class BtcWallet:
                     output_n=utxo["vout"],
                     keys=[self.key],
                 )
-            t.add_output(to_address, amount_sats)
+            t.add_output(amount_sats, to_address)
 
             # Sign
             t.sign()

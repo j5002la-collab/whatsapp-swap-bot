@@ -9,4 +9,3 @@ pydantic-settings>=2.0.0
 cryptography>=41.0
 bitcoinlib>=0.6
 bolt11>=1.0
-coincurve>=19.0

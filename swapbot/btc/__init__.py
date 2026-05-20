@@ -1,1 +1,1 @@
-"""BTC wallet module — key management, deposit monitoring, sending, Schnorr signing."""
+"""BTC wallet module — key management, deposit monitoring, sending."""

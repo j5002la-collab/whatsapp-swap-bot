@@ -20,9 +20,7 @@ class BtcWallet:
 
     def __init__(self, wif: str, mempool_api: str = MEMPOOL_API):
         self.key = Key(wif)
-        self.address = self.key.address(
-            compressed=True, encoding="bech32", witness_type="segwit"
-        )
+        self.address = self.key.address(compressed=True, encoding="bech32")
         self.mempool_api = mempool_api.rstrip("/")
         self.http = httpx.AsyncClient(timeout=30.0)
         logger.info(f"BTC wallet loaded: {self.address}")

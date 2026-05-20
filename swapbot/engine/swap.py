@@ -249,13 +249,16 @@ class SwapOrchestrator:
             claim_keypair = BtcKey()
             preimage = secrets.token_bytes(32)
             preimage_hash = hashlib.sha256(preimage).hexdigest()
+            # Store key data for cooperative claim later
+            claim_key_hex = claim_keypair.private_hex
+            claim_pubkey_hex = claim_keypair.public_hex
 
             response = await self.boltz.create_reverse_swap(
                 ReverseSwapRequest(
                     from_currency="BTC",
                     to_currency="BTC",
                     invoiceAmount=invoice_amount,
-                    claimPublicKey=claim_keypair.public_hex,
+                    claimPublicKey=claim_pubkey_hex,
                     preimageHash=preimage_hash,
                     address=bot_address,  # Boltz sends BTC to BOT first
                 )
@@ -298,18 +301,22 @@ class SwapOrchestrator:
                 raffle_contribution=raffle_contrib,
                 pair_hash=rate_info.pair_hash,
                 user_address=dest_address,
+                completion_tx=claim_key_hex,  # store claim private key for cooperative claim
             )
 
             await self.raffle.add_contribution(self.db, phone_hash, invoice_amount)
 
-            # 4. Subscribe to Boltz WS for status + auto-forward on completion
+            # 4. Subscribe to Boltz WS for status + auto-claim on completion
             if self._ws and self._openwa:
                 self._active_swaps.add(swap_id)
                 await self._ws.subscribe(
                     response.id,
                     lambda sid, status: self._on_reverse_update_custodial(
                         swap_id, phone_hash, chat_id, dest_address,
-                        fee_breakdown, response.expectedAmount, status
+                        fee_breakdown, response.expectedAmount, status,
+                        claim_key=claim_key_hex,
+                        preimage_hash=preimage_hash,
+                        boltz_id=response.id,
                     ),
                 )
                 asyncio.ensure_future(
@@ -507,15 +514,18 @@ class SwapOrchestrator:
         fee_breakdown: FeeBreakdown,
         boltz_expected_amount: int,
         status: str,
+        claim_key: str = "",
+        preimage_hash: str = "",
+        boltz_id: str = "",
     ):
-        """Handle custodial reverse swap: on Boltz completion, forward BTC to user."""
+        """Handle custodial reverse swap: cooperative claim → forward BTC to user."""
         logger.info(f"Custodial reverse {swap_id}: status → {status}")
         btc_wallet = self._btc_wallet
 
         if status == "invoice.settled":
-            # Boltz sent BTC to bot → wait for confirmation → forward to user
+            # Boltz accepted the LN payment → do cooperative claim to get BTC
             if not btc_wallet:
-                logger.error("BTC wallet gone, can't forward")
+                logger.error("BTC wallet gone, can't claim")
                 if self._openwa:
                     await self._openwa.send_text(
                         chat_id, "⚠️ Error técnico. Contactá a soporte."
@@ -524,29 +534,49 @@ class SwapOrchestrator:
 
             if self._openwa:
                 await self._openwa.send_text(
-                    chat_id, "✅ BTC recibido de Boltz. Esperando 1 confirmación..."
+                    chat_id, "✅ Pago LN detectado. Reclamando BTC..."
                 )
 
-            # Wait for deposit from Boltz
+            # Cooperative claim: sign the claim transaction
+            claimed = await self._cooperative_reverse_claim(
+                boltz_id, claim_key, preimage_hash
+            )
+
+            if not claimed:
+                logger.error(f"Cooperative claim failed for {swap_id}")
+                if self._openwa:
+                    await self._openwa.send_text(
+                        chat_id, "⚠️ Error al reclamar BTC. Reintentando..."
+                    )
+                return
+
+            # Wait for BTC to arrive at bot's address
+            if self._openwa:
+                await self._openwa.send_text(
+                    chat_id, "✅ BTC reclamado. Esperando 1 confirmación..."
+                )
+
             deposit = await btc_wallet.wait_for_deposit(
                 boltz_expected_amount, tolerance_pct=5.0, timeout_s=600
             )
             if not deposit:
                 if self._openwa:
                     await self._openwa.send_text(
-                        chat_id, "⏰ Timeout esperando BTC de Boltz. Monitoreando..."
+                        chat_id, "⏰ Timeout esperando BTC. Monitoreando..."
                     )
                 return
 
             # Forward BTC to user (minus commission)
             commission = fee_breakdown.commission_amount
-            user_gets = max(boltz_expected_amount - commission, 5000)  # min 5k sats
+            # Estimate miner fee for forward TX (~250 sats for simple TX)
+            forward_fee = 500
+            user_gets = max(boltz_expected_amount - commission - forward_fee, 5000)
 
             if self._openwa:
                 await self._openwa.send_text(
                     chat_id,
                     f"📤 Enviando *{user_gets:,} sats* a tu dirección...\n"
-                    f"Comisión: {commission:,} sats"
+                    f"Comisión: {commission:,} sats | Fee red: {forward_fee} sats"
                 )
 
             txid = await btc_wallet.send_btc(user_address, user_gets)
@@ -579,6 +609,68 @@ class SwapOrchestrator:
 
         # Non-terminal updates
         await update_swap(self.db, swap_id, boltz_status=status)
+
+    async def _cooperative_reverse_claim(
+        self,
+        boltz_id: str,
+        claim_key_hex: str,
+        preimage_hash: str,
+    ) -> bool:
+        """Perform cooperative claim for a reverse swap using Schnorr signature."""
+        try:
+            import bip340
+            import hashlib as hl
+
+            # 1. Get claim details from Boltz
+            claim_resp = await self.boltz.http.get(
+                f"/swap/reverse/{boltz_id}/claim"
+            )
+            claim_resp.raise_for_status()
+            claim_data = claim_resp.json()
+            logger.info(f"Claim details for {boltz_id}: keys={list(claim_data.keys())}")
+
+            # 2. Verify preimage
+            preimage = claim_data.get("preimage", "")
+            if preimage:
+                preimage_bytes = bytes.fromhex(preimage)
+                if hl.sha256(preimage_bytes).hexdigest() != preimage_hash:
+                    logger.error(f"Preimage mismatch for {boltz_id}")
+                    return False
+
+            # 3. Sign the transaction hash with our key (Schnorr)
+            tx_hash = claim_data.get("transactionHash", "")
+            if not tx_hash:
+                logger.error(f"No transactionHash in claim response")
+                return False
+
+            tx_hash_bytes = bytes.fromhex(tx_hash)
+            priv_key_bytes = bytes.fromhex(claim_key_hex)
+
+            # bip340 sign
+            signature = bip340.sign(tx_hash_bytes, priv_key_bytes)
+
+            # 4. Submit signature
+            submit_body = {
+                "index": claim_data.get("index", 0),
+                "signature": signature.hex(),
+            }
+            submit_resp = await self.boltz.http.post(
+                f"/swap/reverse/{boltz_id}/claim",
+                json=submit_body,
+            )
+            if submit_resp.status_code in (200, 201, 202):
+                logger.info(f"Cooperative claim submitted for {boltz_id}")
+                return True
+            else:
+                logger.error(
+                    f"Claim submit failed for {boltz_id}: "
+                    f"{submit_resp.status_code} {submit_resp.text[:200]}"
+                )
+                return False
+
+        except Exception as e:
+            logger.error(f"Cooperative claim error for {boltz_id}: {e}", exc_info=True)
+            return False
 
     async def _unsubscribe_after_timeout(self, swap_id: str, boltz_id: str):
         """Clean up WebSocket subscription after 2 hours."""

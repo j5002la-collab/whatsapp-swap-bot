@@ -109,8 +109,8 @@ class SwapOrchestrator:
                 user_invoice=invoice,
             )
 
-            # Track raffle
-            await self.raffle.add_entry(phone_hash, source_amount)
+            # Track raffle contribution in swap record
+            await self.raffle.add_contribution(self.db, phone_hash, source_amount)
 
             # Subscribe to WebSocket updates
             if self._ws and self._openwa:
@@ -124,8 +124,7 @@ class SwapOrchestrator:
                 )
 
                 # Auto-unsubscribe after 2 hours
-                def _cleanup():
-                    asyncio.ensure_future(self._unsubscribe_after_timeout(swap_id, response.id))
+                asyncio.ensure_future(self._unsubscribe_after_timeout(swap_id, response.id))
 
             logger.info(f"Swap executed: {swap_id} (Boltz: {response.id})")
             return swap_id
@@ -202,7 +201,7 @@ class SwapOrchestrator:
                 user_address=dest_address,
             )
 
-            await self.raffle.add_entry(phone_hash, invoice_amount)
+            await self.raffle.add_contribution(self.db, phone_hash, invoice_amount)
 
             if self._ws and self._openwa:
                 self._active_swaps.add(swap_id)

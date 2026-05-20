@@ -58,6 +58,10 @@ CREATE TABLE IF NOT EXISTS raffle_entries (
     phone_hash TEXT NOT NULL,
     tickets INTEGER NOT NULL DEFAULT 1,
     volume_contributed INTEGER NOT NULL DEFAULT 0,
+    winner_hash TEXT DEFAULT NULL,
+    prize_amount INTEGER DEFAULT NULL,
+    drawn_at TEXT DEFAULT NULL,
+    paid INTEGER NOT NULL DEFAULT 0,
     UNIQUE(week_number, phone_hash)
 );
 

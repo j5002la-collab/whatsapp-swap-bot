@@ -10,15 +10,12 @@ _cleanup_task: asyncio.Task | None = None
 
 async def _cleanup_loop(db, interval_seconds: int = 300):
     """Clean up abandoned swap states every N seconds."""
+    from swapbot.db.queries import expire_abandoned_states
     while True:
         try:
-            await db.execute(
-                """UPDATE users SET state = NULL, state_expires_at = NULL
-                   WHERE state_expires_at IS NOT NULL
-                   AND state_expires_at < datetime('now')"""
-            )
-            await db.commit()
-            logger.debug("State cleanup completed")
+            expired = await expire_abandoned_states(db)
+            if expired:
+                logger.info(f"State cleanup: {expired} expired states cleared")
         except Exception as e:
             logger.error(f"State cleanup error: {e}")
         await asyncio.sleep(interval_seconds)

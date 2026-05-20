@@ -34,16 +34,17 @@ class RaffleEngine:
 
         # Check if drawn
         raffle_row = await db.fetch_one(
-            "SELECT * FROM raffle_entries WHERE week = ? AND paid = 1 ORDER BY drawn_at DESC LIMIT 1",
+            "SELECT * FROM raffle_entries WHERE week_number = ? AND paid = 1 ORDER BY drawn_at DESC LIMIT 1",
             (week,)
         )
         if raffle_row:
+            wh = raffle_row.get("winner_hash")
             return {
                 "week": week,
                 "pool": stats.get("raffle_pool", 0),
                 "participants": participants,
                 "paid": True,
-                "winner": raffle_row["winner_hash"][:8] if raffle_row.get("winner_hash") else None,
+                "winner": wh[:8] if wh else None,
             }
 
         return {
@@ -59,9 +60,9 @@ class RaffleEngine:
         now = datetime.now(timezone.utc)
         week = now.isocalendar()[1]
 
-        # Check if already drawn
+        # Check if already drawn this week (any row with paid=1 for this week_number)
         existing = await db.fetch_one(
-            "SELECT * FROM raffle_entries WHERE week = ? AND paid = 1",
+            "SELECT * FROM raffle_entries WHERE week_number = ? AND paid = 1",
             (week,)
         )
         if existing:
@@ -98,11 +99,13 @@ class RaffleEngine:
         if not winner_hash:
             winner_hash = rows[-1]["phone_hash"]
 
-        # Record draw
+        # Record draw winner row
         await db.execute(
-            """INSERT INTO raffle_entries (week, winner_hash, prize_amount, drawn_at, paid)
-               VALUES (?, ?, ?, ?, ?)""",
-            (week, winner_hash, pool, now.isoformat(), 1),
+            """INSERT OR REPLACE INTO raffle_entries
+               (week_number, phone_hash, tickets, volume_contributed,
+                winner_hash, prize_amount, drawn_at, paid)
+               VALUES (?, ?, 1, 0, ?, ?, ?, 1)""",
+            (week, winner_hash, winner_hash, pool, now.isoformat()),
         )
         await db.commit()
 

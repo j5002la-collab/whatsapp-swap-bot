@@ -84,12 +84,19 @@ class OpenWAClient:
             # List existing webhooks first
             response = await self.http.get(f"/sessions/{self.session_id}/webhooks")
             data = response.json()
-            existing = data.get("data", []) if data.get("success") else []
+            # OpenWA returns plain array [] when no webhooks exist,
+            # or {success: true, data: [...]} wrapped format
+            if isinstance(data, list):
+                existing = data
+            elif isinstance(data, dict) and data.get("success"):
+                existing = data.get("data", [])
+            else:
+                existing = []
 
             # Check if webhook already exists
             webhook_id = None
             for wh in existing:
-                if wh.get("url") == webhook_url:
+                if isinstance(wh, dict) and wh.get("url") == webhook_url:
                     webhook_id = wh.get("id")
                     break
 

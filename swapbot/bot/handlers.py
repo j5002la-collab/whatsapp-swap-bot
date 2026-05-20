@@ -246,17 +246,17 @@ async def _execute_submarine(router, phone_hash, chat_id, state):
     """Execute submarine swap: user sends BTC on-chain → gets Lightning."""
     await increment_rate_limit(router.db, phone_hash)
 
-    success, result = await router.swap.create_submarine_swap(
+    result = await router.swap.execute_submarine_swap(
         phone_hash=phone_hash,
         chat_id=chat_id,
-        amount=state.session.source_amount,
         invoice=state.session.invoice,
+        source_amount=state.session.source_amount,
         rate_info=state.session.rate_info,
-        fee=state.session.fee_breakdown,
+        fee_breakdown=state.session.fee_breakdown,
     )
 
-    if not success:
-        await router.openwa.send_text(chat_id, result)
+    if not result:
+        await router.openwa.send_text(chat_id, service_unavailable())
         state.reset()
         await update_user_state(router.db, phone_hash, None)
         return
@@ -269,17 +269,17 @@ async def _execute_reverse(router, phone_hash, chat_id, state):
     """Execute reverse swap: user pays Lightning invoice → gets BTC on-chain."""
     await increment_rate_limit(router.db, phone_hash)
 
-    success, result = await router.swap.create_reverse_swap(
+    result = await router.swap.execute_reverse_swap(
         phone_hash=phone_hash,
         chat_id=chat_id,
-        amount=state.session.source_amount,
         dest_address=state.session.dest_address,
+        invoice_amount=state.session.source_amount,
         rate_info=state.session.rate_info,
-        fee=state.session.fee_breakdown,
+        fee_breakdown=state.session.fee_breakdown,
     )
 
-    if not success:
-        await router.openwa.send_text(chat_id, result)
+    if not result:
+        await router.openwa.send_text(chat_id, service_unavailable())
         state.reset()
         await update_user_state(router.db, phone_hash, None)
         return

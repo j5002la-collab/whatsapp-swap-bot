@@ -44,7 +44,7 @@ OPENWA_API_KEY = os.getenv("OPENWA_API_KEY", "")
 OPENWA_SESSION_ID = os.getenv("OPENWA_SESSION_ID", "sess_default")
 BOLTZ_API_URL = os.getenv("BOLTZ_API_URL", "https://api.boltz.exchange")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "change-me")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", "http://swapbot:2889/webhook")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "http://localhost:2889/webhook")
 ADMIN_PHONE = os.getenv("ADMIN_PHONE", "")
 COMMISSION_RATE = float(os.getenv("COMMISSION_RATE", "2.5"))
 DATABASE_PATH = os.getenv("DATABASE_PATH", "./data/swapbot.db")
@@ -117,7 +117,7 @@ async def lifespan(app: FastAPI):
     # Initialize ChangeNOW client for stablecoin swaps
     changenow_key = os.getenv("CHANGENOW_API_KEY", "")
     if changenow_key:
-        from swapbot.changenow.client import init_cn_client
+        from swapbot.changenow.client import init_cn_client, get_cn_client
         init_cn_client(changenow_key)
         logger.info("ChangeNOW client initialized for USDT/USDC swaps")
     else:
@@ -125,7 +125,7 @@ async def lifespan(app: FastAPI):
 
     # Start scheduled jobs
     start_cleanup_scheduler(db)
-    start_raffle_scheduler(raffle_engine, openwa_client)
+    start_raffle_scheduler(raffle_engine, db)
 
     logger.info("✅ SwapBot ready")
 
@@ -137,6 +137,11 @@ async def lifespan(app: FastAPI):
     stop_raffle_scheduler()
     if boltz_ws:
         await boltz_ws.disconnect()
+    # Close ChangeNOW client
+    from swapbot.changenow.client import get_cn_client
+    cn = get_cn_client()
+    if cn:
+        await cn.close()
     if db:
         await db.close()
 

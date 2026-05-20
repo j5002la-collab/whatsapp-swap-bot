@@ -7,6 +7,7 @@ import logging
 import os
 import hashlib
 import secrets
+import httpx
 from datetime import datetime, timezone
 
 from swapbot.boltz.client import BoltzClient
@@ -121,13 +122,14 @@ class SwapOrchestrator:
                 return None
 
             # 3. Create Boltz submarine swap (send invoice amount to Boltz)
-            refund_key = secrets.token_hex(32)
+            from bitcoinlib.keys import Key as BtcKey
+            refund_keypair = BtcKey()
             response = await self.boltz.create_submarine_swap(
                 SubmarineSwapRequest(
                     from_currency="BTC",
                     to_currency="BTC",
                     invoice=invoice,
-                    refundPublicKey=refund_key,
+                    refundPublicKey=refund_keypair.public_hex,
                 )
             )
 
@@ -242,16 +244,18 @@ class SwapOrchestrator:
             bot_address = btc_wallet.derive_address()
 
             # 1. Create Boltz reverse swap with bot as destination
+            # Generate proper secp256k1 keypair for Boltz
+            from bitcoinlib.keys import Key as BtcKey
+            claim_keypair = BtcKey()
             preimage = secrets.token_bytes(32)
             preimage_hash = hashlib.sha256(preimage).hexdigest()
-            claim_key = secrets.token_hex(32)
 
             response = await self.boltz.create_reverse_swap(
                 ReverseSwapRequest(
                     from_currency="BTC",
                     to_currency="BTC",
                     invoiceAmount=invoice_amount,
-                    claimPublicKey=claim_key,
+                    claimPublicKey=claim_keypair.public_hex,
                     preimageHash=preimage_hash,
                     address=bot_address,  # Boltz sends BTC to BOT first
                 )
@@ -313,6 +317,23 @@ class SwapOrchestrator:
                 )
 
             return swap_id
+
+        except httpx.HTTPStatusError as e:
+            resp_body = e.response.text[:300]
+            logger.error(f"Reverse swap Boltz error ({e.response.status_code}): {resp_body}")
+            await create_swap(
+                self.db,
+                swap_id=swap_id,
+                phone_hash=phone_hash,
+                direction="ln_btc",
+                source_currency="BTC",
+                dest_currency="BTC",
+                source_amount=invoice_amount,
+                boltz_status=f"error: {resp_body[:100]}",
+                status="failed",
+                commission_rate=fee_breakdown.commission_rate if fee_breakdown else 2.5,
+            )
+            return None
 
         except Exception as e:
             logger.error(f"Reverse swap creation failed: {e}", exc_info=True)

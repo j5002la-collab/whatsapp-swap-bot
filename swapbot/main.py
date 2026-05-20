@@ -24,6 +24,7 @@ from swapbot.engine.rates import RateEngine
 from swapbot.engine.commission import CommissionEngine
 from swapbot.engine.swap import SwapOrchestrator
 from swapbot.engine.raffle import RaffleEngine
+from swapbot.btc.wallet import init_btc_wallet
 from swapbot.jobs.cleanup import start_cleanup_scheduler, stop_cleanup_scheduler
 from swapbot.jobs.raffle_draw import start_raffle_scheduler, stop_raffle_scheduler
 
@@ -49,6 +50,7 @@ ADMIN_PHONE = os.getenv("ADMIN_PHONE", "")
 COMMISSION_RATE = float(os.getenv("COMMISSION_RATE", "2.5"))
 DATABASE_PATH = os.getenv("DATABASE_PATH", "./data/swapbot.db")
 WEBHOOK_PORT = int(os.getenv("WEBHOOK_PORT", "2889"))
+BOT_BTC_WIF = os.getenv("BOT_BTC_WIF", "")
 
 
 def hash_phone(phone: str) -> str:
@@ -90,6 +92,14 @@ async def lifespan(app: FastAPI):
     commission_engine = CommissionEngine(COMMISSION_RATE)
     raffle_engine = RaffleEngine()
     swap_orchestrator = SwapOrchestrator(boltz_client, db, commission_engine, raffle_engine)
+
+    # Init BTC wallet if configured
+    if BOT_BTC_WIF:
+        btc_wallet = init_btc_wallet(BOT_BTC_WIF)
+        swap_orchestrator.set_btc_wallet(btc_wallet)
+        logger.info(f"BTC wallet loaded: {btc_wallet.derive_address()}")
+    else:
+        logger.warning("BOT_BTC_WIF not set — custodial swaps disabled")
 
     msg_router = MessageRouter(
         db=db,
@@ -142,6 +152,11 @@ async def lifespan(app: FastAPI):
     cn = get_cn_client()
     if cn:
         await cn.close()
+    # Close BTC wallet
+    from swapbot.btc.wallet import get_btc_wallet
+    wallet = get_btc_wallet()
+    if wallet:
+        await wallet.close()
     if db:
         await db.close()
 

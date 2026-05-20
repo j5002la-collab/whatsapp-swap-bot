@@ -48,12 +48,16 @@ class SwapOrchestrator:
         self._ws: BoltzWebSocket | None = None
         self._active_swaps: set[str] = set()
         self._openwa: OpenWAClient | None = None
+        self._btc_wallet = None
 
     def set_ws(self, ws: BoltzWebSocket):
         self._ws = ws
 
     def set_openwa(self, client: OpenWAClient):
         self._openwa = client
+
+    def set_btc_wallet(self, wallet):
+        self._btc_wallet = wallet
 
     async def execute_submarine_swap(
         self,
@@ -64,17 +68,60 @@ class SwapOrchestrator:
         rate_info: RateInfo,
         fee_breakdown: FeeBreakdown,
     ) -> str | None:
-        """Execute a submarine swap (BTC on-chain → Lightning).
+        """Custodial BTC→LN swap.
         
-        Returns the swap ID or None on failure.
+        Flow:
+        1. Show bot's BTC address → user sends BTC
+        2. Wait for 1 confirmation
+        3. Create Boltz submarine swap → forward BTC to Boltz
+        4. Boltz pays user's Lightning invoice
+        5. Commission stays in bot's wallet
         """
         swap_id = "SWAP-" + secrets.token_hex(6).upper()
+        btc_wallet = self._btc_wallet
+
+        if not btc_wallet:
+            logger.error("BTC wallet not configured")
+            return None
 
         try:
-            # Generate random keys for refund
-            refund_key = secrets.token_hex(32)
+            # Total user must send = invoice amount + fees + commission
+            total_user_sends = (
+                fee_breakdown.source_amount
+                + fee_breakdown.commission_amount
+                + fee_breakdown.boltz_miner_fee
+            )
 
-            # Create Boltz swap
+            bot_address = btc_wallet.derive_address()
+
+            # 1. Tell user to send BTC to bot
+            if self._openwa:
+                deposit_msg = (
+                    "━━━━━━━━━━━━━━━━━━━━\n"
+                    "📤 *Envía BTC para iniciar*\n"
+                    "━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"Envía exactamente *{total_user_sends:,} sats* a:\n\n"
+                    f"`{bot_address}`\n\n"
+                    f"Recibirás: ~{fee_breakdown.estimated_receive:,} sats ⚡\n"
+                    f"Comisión SwapBot: {fee_breakdown.commission_amount:,} sats\n\n"
+                    "⏳ _Esperando tu transacción (1 confirmación)..._"
+                )
+                await self._openwa.send_text(chat_id, deposit_msg)
+
+            # 2. Wait for deposit
+            deposit = await btc_wallet.wait_for_deposit(
+                total_user_sends, tolerance_pct=3.0, timeout_s=1800
+            )
+            if not deposit:
+                if self._openwa:
+                    await self._openwa.send_text(
+                        chat_id,
+                        "⏰ No se detectó tu depósito en 30 min. Cancelado."
+                    )
+                return None
+
+            # 3. Create Boltz submarine swap (send invoice amount to Boltz)
+            refund_key = secrets.token_hex(32)
             response = await self.boltz.create_submarine_swap(
                 SubmarineSwapRequest(
                     from_currency="BTC",
@@ -84,8 +131,20 @@ class SwapOrchestrator:
                 )
             )
 
-            # Persist swap record
+            # 4. Forward BTC to Boltz's deposit address
+            boltz_amount = response.expectedAmount
+            txid = await btc_wallet.send_btc(response.address, boltz_amount)
+            if not txid:
+                if self._openwa:
+                    await self._openwa.send_text(
+                        chat_id,
+                        "⚠️ Error al enviar a Boltz. Contactá a soporte."
+                    )
+                return None
+
+            # 5. Persist swap
             raffle_contrib = int(source_amount * 0.001)
+            actual_commission = deposit["value"] - boltz_amount
             await create_swap(
                 self.db,
                 swap_id=swap_id,
@@ -93,7 +152,7 @@ class SwapOrchestrator:
                 direction="btc_ln",
                 source_currency="BTC",
                 dest_currency="BTC",
-                source_amount=source_amount,
+                source_amount=total_user_sends,
                 dest_amount=response.expectedAmount,
                 boltz_swap_id=response.id,
                 boltz_address=response.address,
@@ -101,18 +160,18 @@ class SwapOrchestrator:
                 boltz_status="swap.created",
                 status="pending",
                 commission_rate=fee_breakdown.commission_rate,
-                commission_amount=fee_breakdown.commission_amount,
+                commission_amount=actual_commission,
                 boltz_fee_amount=fee_breakdown.boltz_fee_amount,
                 boltz_miner_fee=fee_breakdown.boltz_miner_fee,
                 raffle_contribution=raffle_contrib,
                 pair_hash=rate_info.pair_hash,
                 user_invoice=invoice,
+                user_address=deposit["txid"],  # store user's deposit txid
             )
 
-            # Track raffle contribution in swap record
             await self.raffle.add_contribution(self.db, phone_hash, source_amount)
 
-            # Subscribe to WebSocket updates
+            # 6. Subscribe to Boltz WS for updates
             if self._ws and self._openwa:
                 self._active_swaps.add(swap_id)
                 await self._ws.subscribe(
@@ -122,16 +181,24 @@ class SwapOrchestrator:
                         fee_breakdown, status
                     ),
                 )
+                asyncio.ensure_future(
+                    self._unsubscribe_after_timeout(swap_id, response.id)
+                )
 
-                # Auto-unsubscribe after 2 hours
-                asyncio.ensure_future(self._unsubscribe_after_timeout(swap_id, response.id))
+            if self._openwa:
+                await self._openwa.send_text(
+                    chat_id,
+                    f"✅ BTC enviado a Boltz ({boltz_amount:,} sats)\n"
+                    f"🔍 TX: `{txid[:16]}...`\n\n"
+                    f"Swap: `{swap_id}`\n"
+                    f"⏳ Procesando pago Lightning..."
+                )
 
             logger.info(f"Swap executed: {swap_id} (Boltz: {response.id})")
             return swap_id
 
         except Exception as e:
-            logger.error(f"Swap creation failed: {e}")
-            # Record failed swap
+            logger.error(f"Swap creation failed: {e}", exc_info=True)
             await create_swap(
                 self.db,
                 swap_id=swap_id,
@@ -150,19 +217,31 @@ class SwapOrchestrator:
         self,
         phone_hash: str,
         chat_id: str,
-        dest_address: str,
+        dest_address: str,  # user's final BTC address
         invoice_amount: int,
         rate_info: RateInfo,
         fee_breakdown: FeeBreakdown,
     ) -> str | None:
-        """Execute a reverse swap (Lightning → BTC on-chain).
+        """Custodial LN→BTC swap via Boltz reverse.
         
-        Returns the swap ID or None on failure.
+        Flow:
+        1. Create Boltz reverse swap with destination = BOT's BTC address
+        2. User pays the Boltz Lightning invoice
+        3. Boltz sends BTC to bot's address
+        4. Bot waits 1 confirmation
+        5. Bot forwards BTC to user (minus commission)
         """
         swap_id = "SWAP-" + secrets.token_hex(6).upper()
+        btc_wallet = self._btc_wallet
+
+        if not btc_wallet:
+            logger.error("BTC wallet not configured")
+            return None
 
         try:
-            # Generate preimage and claim keys
+            bot_address = btc_wallet.derive_address()
+
+            # 1. Create Boltz reverse swap with bot as destination
             preimage = secrets.token_bytes(32)
             preimage_hash = hashlib.sha256(preimage).hexdigest()
             claim_key = secrets.token_hex(32)
@@ -174,10 +253,26 @@ class SwapOrchestrator:
                     invoiceAmount=invoice_amount,
                     claimPublicKey=claim_key,
                     preimageHash=preimage_hash,
-                    address=dest_address,
+                    address=bot_address,  # Boltz sends BTC to BOT first
                 )
             )
 
+            # 2. Show user the Lightning invoice to pay
+            if self._openwa:
+                invoice_msg = (
+                    "━━━━━━━━━━━━━━━━━━━━\n"
+                    "⚡ *Paga esta invoice Lightning*\n"
+                    "━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"`{response.invoice}`\n\n"
+                    f"Monto: {invoice_amount:,} sats\n"
+                    f"Recibirás BTC en tu dirección después de confirmación.\n\n"
+                    f"Swap: `{swap_id}`\n"
+                    "⏳ _Esperando tu pago..._"
+                )
+                await self._openwa.send_text(chat_id, invoice_msg)
+
+            # 3. Wait for Boltz to send BTC to bot (monitor via WS + mempool)
+            # Store swap so WS updates can find it
             raffle_contrib = int(invoice_amount * 0.001)
             await create_swap(
                 self.db,
@@ -203,19 +298,24 @@ class SwapOrchestrator:
 
             await self.raffle.add_contribution(self.db, phone_hash, invoice_amount)
 
+            # 4. Subscribe to Boltz WS for status + auto-forward on completion
             if self._ws and self._openwa:
                 self._active_swaps.add(swap_id)
                 await self._ws.subscribe(
                     response.id,
-                    lambda sid, status: self._on_reverse_update(
-                        swap_id, phone_hash, chat_id, fee_breakdown, status
+                    lambda sid, status: self._on_reverse_update_custodial(
+                        swap_id, phone_hash, chat_id, dest_address,
+                        fee_breakdown, response.expectedAmount, status
                     ),
+                )
+                asyncio.ensure_future(
+                    self._unsubscribe_after_timeout(swap_id, response.id)
                 )
 
             return swap_id
 
         except Exception as e:
-            logger.error(f"Reverse swap creation failed: {e}")
+            logger.error(f"Reverse swap creation failed: {e}", exc_info=True)
             await create_swap(
                 self.db,
                 swap_id=swap_id,
@@ -319,7 +419,7 @@ class SwapOrchestrator:
         fee: FeeBreakdown,
         status: str,
     ):
-        """Handle reverse swap status update from WebSocket."""
+        """Handle reverse swap status update (legacy non-custodial)."""
         logger.info(f"Reverse swap {swap_id}: status → {status}")
 
         status_labels = {
@@ -375,6 +475,88 @@ class SwapOrchestrator:
         if self._openwa:
             await self._openwa.send_text(chat_id, f"🔄 *{label}*\n\nSwap: `{swap_id}`")
 
+        await update_swap(self.db, swap_id, boltz_status=status)
+
+    async def _on_reverse_update_custodial(
+        self,
+        swap_id: str,
+        phone_hash: str,
+        chat_id: str,
+        user_address: str,
+        fee_breakdown: FeeBreakdown,
+        boltz_expected_amount: int,
+        status: str,
+    ):
+        """Handle custodial reverse swap: on Boltz completion, forward BTC to user."""
+        logger.info(f"Custodial reverse {swap_id}: status → {status}")
+        btc_wallet = self._btc_wallet
+
+        if status == "invoice.settled":
+            # Boltz sent BTC to bot → wait for confirmation → forward to user
+            if not btc_wallet:
+                logger.error("BTC wallet gone, can't forward")
+                if self._openwa:
+                    await self._openwa.send_text(
+                        chat_id, "⚠️ Error técnico. Contactá a soporte."
+                    )
+                return
+
+            if self._openwa:
+                await self._openwa.send_text(
+                    chat_id, "✅ BTC recibido de Boltz. Esperando 1 confirmación..."
+                )
+
+            # Wait for deposit from Boltz
+            deposit = await btc_wallet.wait_for_deposit(
+                boltz_expected_amount, tolerance_pct=5.0, timeout_s=600
+            )
+            if not deposit:
+                if self._openwa:
+                    await self._openwa.send_text(
+                        chat_id, "⏰ Timeout esperando BTC de Boltz. Monitoreando..."
+                    )
+                return
+
+            # Forward BTC to user (minus commission)
+            commission = fee_breakdown.commission_amount
+            user_gets = max(boltz_expected_amount - commission, 5000)  # min 5k sats
+
+            if self._openwa:
+                await self._openwa.send_text(
+                    chat_id,
+                    f"📤 Enviando *{user_gets:,} sats* a tu dirección...\n"
+                    f"Comisión: {commission:,} sats"
+                )
+
+            txid = await btc_wallet.send_btc(user_address, user_gets)
+            if txid:
+                await update_swap(
+                    self.db,
+                    swap_id,
+                    status="completed",
+                    boltz_status=status,
+                    completed_at=datetime.now(timezone.utc).isoformat(),
+                    completion_tx=txid,
+                )
+                await increment_user_swaps(self.db, phone_hash, fee_breakdown.source_amount)
+                if self._openwa:
+                    await self._openwa.send_text(
+                        chat_id,
+                        f"🎉 *¡Swap completado!*\n\n"
+                        f"Recibiste: {user_gets:,} sats\n"
+                        f"TX: `{txid[:16]}...`\n"
+                        f"Swap: `{swap_id}`\n\n"
+                        f"Envía *swap* para un nuevo intercambio."
+                    )
+            else:
+                logger.error(f"Failed to send BTC to user {user_address}")
+                if self._openwa:
+                    await self._openwa.send_text(
+                        chat_id, "⚠️ Error al enviar BTC. Contactá a soporte."
+                    )
+            return
+
+        # Non-terminal updates
         await update_swap(self.db, swap_id, boltz_status=status)
 
     async def _unsubscribe_after_timeout(self, swap_id: str, boltz_id: str):

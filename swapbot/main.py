@@ -50,7 +50,9 @@ ADMIN_PHONE = os.getenv("ADMIN_PHONE", "")
 COMMISSION_RATE = float(os.getenv("COMMISSION_RATE", "2.5"))
 DATABASE_PATH = os.getenv("DATABASE_PATH", "./data/swapbot.db")
 WEBHOOK_PORT = int(os.getenv("WEBHOOK_PORT", "2889"))
-BOT_BTC_WIF = os.getenv("BOT_BTC_WIF", "")
+WALLET_BTC_ADDRESS = os.getenv("WALLET_BTC_ADDRESS", "")
+WALLET_LIGHTNING_ADDRESS = os.getenv("WALLET_LIGHTNING_ADDRESS", "")
+WALLET_BTC_PRIVATE_KEY = os.getenv("WALLET_BTC_PRIVATE_KEY", "")
 
 
 def hash_phone(phone: str) -> str:
@@ -94,12 +96,12 @@ async def lifespan(app: FastAPI):
     swap_orchestrator = SwapOrchestrator(boltz_client, db, commission_engine, raffle_engine)
 
     # Init BTC wallet if configured
-    if BOT_BTC_WIF:
-        btc_wallet = init_btc_wallet(BOT_BTC_WIF)
+    if WALLET_BTC_PRIVATE_KEY:
+        btc_wallet = init_btc_wallet(WALLET_BTC_PRIVATE_KEY)
         swap_orchestrator.set_btc_wallet(btc_wallet)
         logger.info(f"BTC wallet loaded: {btc_wallet.derive_address()}")
     else:
-        logger.warning("BOT_BTC_WIF not set — custodial swaps disabled")
+        logger.warning("WALLET_BTC_PRIVATE_KEY not set — custodial swaps disabled")
 
     msg_router = MessageRouter(
         db=db,

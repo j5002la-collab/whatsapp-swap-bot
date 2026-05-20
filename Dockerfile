@@ -3,7 +3,7 @@ FROM python:3.12-slim
 WORKDIR /app
 
 RUN pip install --no-cache-dir \
-    fastapi uvicorn[standard] httpx aiosqlite python-dotenv websockets bolt11 bitcoinlib bip340
+    fastapi uvicorn[standard] httpx aiosqlite python-dotenv websockets bolt11 bitcoinlib coincurve
 
 COPY swapbot/ ./swapbot/
 COPY requirements.txt .

@@ -616,10 +616,13 @@ class SwapOrchestrator:
         claim_key_hex: str,
         preimage_hash: str,
     ) -> bool:
-        """Perform cooperative claim for a reverse swap using Schnorr signature."""
+        """Perform cooperative claim for a reverse swap using Schnorr (BIP340).
+        
+        Uses coincurve (libsecp256k1 wrapper) for Schnorr signatures.
+        """
         try:
-            import bip340
             import hashlib as hl
+            from coincurve import PrivateKey
 
             # 1. Get claim details from Boltz
             claim_resp = await self.boltz.http.get(
@@ -627,7 +630,7 @@ class SwapOrchestrator:
             )
             claim_resp.raise_for_status()
             claim_data = claim_resp.json()
-            logger.info(f"Claim details for {boltz_id}: keys={list(claim_data.keys())}")
+            logger.info(f"Claim response for {boltz_id}: {list(claim_data.keys())}")
 
             # 2. Verify preimage
             preimage = claim_data.get("preimage", "")
@@ -637,7 +640,7 @@ class SwapOrchestrator:
                     logger.error(f"Preimage mismatch for {boltz_id}")
                     return False
 
-            # 3. Sign the transaction hash with our key (Schnorr)
+            # 3. Sign the transaction hash with Schnorr (BIP340)
             tx_hash = claim_data.get("transactionHash", "")
             if not tx_hash:
                 logger.error(f"No transactionHash in claim response")
@@ -646,10 +649,11 @@ class SwapOrchestrator:
             tx_hash_bytes = bytes.fromhex(tx_hash)
             priv_key_bytes = bytes.fromhex(claim_key_hex)
 
-            # bip340 sign
-            signature = bip340.sign(tx_hash_bytes, priv_key_bytes)
+            # coincurve BIP340 Schnorr signature
+            key = PrivateKey(priv_key_bytes)
+            signature = key.sign_schnorr(tx_hash_bytes)
 
-            # 4. Submit signature
+            # 4. Submit signature to Boltz
             submit_body = {
                 "index": claim_data.get("index", 0),
                 "signature": signature.hex(),

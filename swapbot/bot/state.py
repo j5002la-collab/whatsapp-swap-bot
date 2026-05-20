@@ -121,6 +121,19 @@ class UserState:
                 "max_amount": self.session.rate_info.max_amount,
                 "pair_hash": self.session.rate_info.pair_hash,
             }
+        if self.session.fee_breakdown:
+            d["fee_breakdown"] = {
+                "source_amount": self.session.fee_breakdown.source_amount,
+                "commission_rate": self.session.fee_breakdown.commission_rate,
+                "commission_amount": self.session.fee_breakdown.commission_amount,
+                "boltz_fee_rate": self.session.fee_breakdown.boltz_fee_rate,
+                "boltz_fee_amount": self.session.fee_breakdown.boltz_fee_amount,
+                "boltz_miner_fee": self.session.fee_breakdown.boltz_miner_fee,
+                "total_fees": self.session.fee_breakdown.total_fees,
+                "net_swap_amount": self.session.fee_breakdown.net_swap_amount,
+                "estimated_receive": self.session.fee_breakdown.estimated_receive,
+                "bot_profit": self.session.fee_breakdown.bot_profit,
+            }
         return d
 
     @classmethod
@@ -158,5 +171,21 @@ class UserState:
                 min_amount=ri.get("min_amount", 0),
                 max_amount=ri.get("max_amount", 0),
                 pair_hash=ri.get("pair_hash", ""),
+            )
+        # Restore fee_breakdown
+        if data.get("fee_breakdown"):
+            from swapbot.engine.commission import FeeBreakdown
+            fb = data["fee_breakdown"]
+            us.session.fee_breakdown = FeeBreakdown(
+                source_amount=fb.get("source_amount", 0),
+                commission_rate=fb.get("commission_rate", 0),
+                commission_amount=fb.get("commission_amount", 0),
+                boltz_fee_rate=fb.get("boltz_fee_rate", 0),
+                boltz_fee_amount=fb.get("boltz_fee_amount", 0),
+                boltz_miner_fee=fb.get("boltz_miner_fee", 0),
+                total_fees=fb.get("total_fees", 0),
+                net_swap_amount=fb.get("net_swap_amount", 0),
+                estimated_receive=fb.get("estimated_receive", 0),
+                bot_profit=fb.get("bot_profit", 0),
             )
         return us

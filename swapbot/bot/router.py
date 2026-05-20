@@ -61,8 +61,10 @@ class MessageRouter:
             if not body or not from_phone:
                 return
 
-            # Skip group messages
+            # Skip group, broadcast, and status messages
             if data.get("isGroup"):
+                return
+            if "@broadcast" in from_phone or "@status" in from_phone:
                 return
 
             logger.info(f"📩 {contact_name or from_phone}: {body[:80]}")

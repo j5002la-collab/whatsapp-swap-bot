@@ -50,9 +50,10 @@ class OpenWAClient:
                 headers={"X-Request-ID": request_id},
             )
             data = response.json()
-            if data.get("success"):
+            # OpenWA returns 201 with message object directly, or 200 with {success:true,data:{...}}
+            if response.status_code in (200, 201):
                 logger.debug(f"Message sent to {chat_id}: {text[:50]}...")
-                return data.get("data")
+                return data if isinstance(data, dict) and "id" in data else data
             logger.error(f"Send text failed: {data.get('error', {}).get('message', 'unknown')}")
             return None
         except Exception as e:
@@ -64,9 +65,9 @@ class OpenWAClient:
         try:
             response = await self.http.get(f"/sessions/{self.session_id}")
             data = response.json()
-            if data.get("success"):
-                return data.get("data")
-            return None
+            if response.status_code == 200:
+                return data
+            logger.error(f"Session status error: {data}")
         except Exception as e:
             logger.error(f"Session status error: {e}")
             return None

@@ -618,11 +618,11 @@ class SwapOrchestrator:
     ) -> bool:
         """Perform cooperative claim for a reverse swap using Schnorr (BIP340).
         
-        Uses coincurve (libsecp256k1 wrapper) for Schnorr signatures.
+        Uses self-contained bip340 schnorr signer built on coincurve.
         """
         try:
             import hashlib as hl
-            from coincurve import PrivateKey
+            from swapbot.btc.schnorr import schnorr_sign
 
             # 1. Get claim details from Boltz
             claim_resp = await self.boltz.http.get(
@@ -630,7 +630,7 @@ class SwapOrchestrator:
             )
             claim_resp.raise_for_status()
             claim_data = claim_resp.json()
-            logger.info(f"Claim response for {boltz_id}: {list(claim_data.keys())}")
+            logger.info(f"Claim response for {boltz_id}: keys={list(claim_data.keys())}")
 
             # 2. Verify preimage
             preimage = claim_data.get("preimage", "")
@@ -649,9 +649,7 @@ class SwapOrchestrator:
             tx_hash_bytes = bytes.fromhex(tx_hash)
             priv_key_bytes = bytes.fromhex(claim_key_hex)
 
-            # coincurve BIP340 Schnorr signature
-            key = PrivateKey(priv_key_bytes)
-            signature = key.sign_schnorr(tx_hash_bytes)
+            signature = schnorr_sign(tx_hash_bytes, priv_key_bytes)
 
             # 4. Submit signature to Boltz
             submit_body = {

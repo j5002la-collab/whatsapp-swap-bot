@@ -96,7 +96,7 @@ class UserState:
 
     def to_dict(self) -> dict:
         """Serialize to JSON-friendly dict for storage."""
-        return {
+        d = {
             "state": self.state.value,
             "direction": self.session.direction,
             "source_amount": self.session.source_amount,
@@ -110,10 +110,23 @@ class UserState:
             "stable_dest_amount": self.session.stable_dest_amount,
             "stable_rate_id": self.session.stable_rate_id,
         }
+        if self.session.rate_info:
+            d["rate_info"] = {
+                "boltz_rate": self.session.rate_info.boltz_rate,
+                "user_rate": self.session.rate_info.user_rate,
+                "boltz_fee_pct": self.session.rate_info.boltz_fee_pct,
+                "boltz_miner_fee": self.session.rate_info.boltz_miner_fee,
+                "bot_commission_pct": self.session.rate_info.bot_commission_pct,
+                "min_amount": self.session.rate_info.min_amount,
+                "max_amount": self.session.rate_info.max_amount,
+                "pair_hash": self.session.rate_info.pair_hash,
+            }
+        return d
 
     @classmethod
     def from_dict(cls, phone_hash: str, data: dict) -> "UserState":
         """Deserialize from stored dict."""
+        from swapbot.engine.rates import RateInfo
         us = cls(phone_hash=phone_hash)
         state_str = data.get("state", "idle")
         try:
@@ -132,4 +145,18 @@ class UserState:
         us.session.stable_source_amount = data.get("stable_source_amount")
         us.session.stable_dest_amount = data.get("stable_dest_amount")
         us.session.stable_rate_id = data.get("stable_rate_id")
+
+        # Restore rate_info
+        if data.get("rate_info"):
+            ri = data["rate_info"]
+            us.session.rate_info = RateInfo(
+                boltz_rate=ri.get("boltz_rate", 0),
+                user_rate=ri.get("user_rate", 0),
+                boltz_fee_pct=ri.get("boltz_fee_pct", 0),
+                boltz_miner_fee=ri.get("boltz_miner_fee", 0),
+                bot_commission_pct=ri.get("bot_commission_pct", 0),
+                min_amount=ri.get("min_amount", 0),
+                max_amount=ri.get("max_amount", 0),
+                pair_hash=ri.get("pair_hash", ""),
+            )
         return us

@@ -178,7 +178,7 @@ async def handle_amount_entry(router, phone_hash, chat_id, body, state):
         return
 
     # Calculate fees
-    fee = router.commission.calculate(amount, rate_info)
+    fee = router.commission.calculate_fee_breakdown(amount, rate_info)
     state.set_amount(amount, rate_info, fee)
     direction_label = {
         "btc_ln": "BTC → Lightning ⚡",
@@ -232,7 +232,7 @@ async def _process_submarine_swap(router, phone_hash, chat_id, state, amount_sat
         await update_user_state(router.db, phone_hash, None)
         return
 
-    fee = router.commission.calculate(amount_sats, rate)
+    fee = router.commission.calculate_fee_breakdown(amount_sats, rate)
     state.session.source_amount = amount_sats
     state.session.invoice = invoice
     state.set_amount(amount_sats, rate, fee)
@@ -750,8 +750,8 @@ async def handle_calc(router, phone_hash, chat_id, body, state):
     sub_rate = await router.rates.get_rate("submarine", "BTC", "BTC")
     rev_rate = await router.rates.get_rate("reverse", "BTC", "BTC")
 
-    sub_fee = router.commission.calculate(amount, sub_rate) if sub_rate else None
-    rev_fee = router.commission.calculate(amount, rev_rate) if rev_rate else None
+    sub_fee = router.commission.calculate_fee_breakdown(amount, sub_rate) if sub_rate else None
+    rev_fee = router.commission.calculate_fee_breakdown(amount, rev_rate) if rev_rate else None
 
     msg = calc_result(amount, sub_fee, rev_fee, router.commission.commission_rate)
     await router.openwa.send_text(chat_id, msg)

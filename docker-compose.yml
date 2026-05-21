@@ -1,69 +1,14 @@
-version: "3.9"
-
 services:
-  # ── OpenWA Gateway ──
-  openwa:
-    build:
-      context: ../openwa-gateway
-      dockerfile: Dockerfile
-    container_name: openwa-gateway
-    ports:
-      - "127.0.0.1:2785:2785"
-      - "127.0.0.1:2886:80"
-    environment:
-      - NODE_ENV=production
-      - PORT=2785
-      - DATABASE_TYPE=sqlite
-      - DATABASE_NAME=/app/data/openwa.sqlite
-      - DATABASE_SYNCHRONIZE=true
-      - ENGINE_TYPE=whatsapp-web.js
-      - SESSION_DATA_PATH=/app/data/sessions
-      - PUPPETEER_HEADLESS=true
-      - PUPPETEER_ARGS=--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage,--disable-gpu
-      - STORAGE_TYPE=local
-      - STORAGE_LOCAL_PATH=/app/data/media
-      - API_MASTER_KEY=${OPENWA_API_KEY:-}
-    volumes:
-      - openwa_data:/app/data
-    restart: unless-stopped
-    networks:
-      - swap-net
-    healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:2785/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  # ── WhatsApp Swap Bot ──
   swapbot:
     build: .
     container_name: swapbot
     ports:
-      - "127.0.0.1:2889:2889"
-    environment:
-      - OPENWA_API_URL=http://openwa:2785
-      - OPENWA_API_KEY=${OPENWA_API_KEY:-}
-      - OPENWA_SESSION_ID=${OPENWA_SESSION_ID:-default}
-      - BOLTZ_API_URL=https://api.boltz.exchange
-      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-change-me}
-      - ADMIN_PHONE=${ADMIN_PHONE:-}
-      - COMMISSION_RATE=${COMMISSION_RATE:-2.5}
-      - SWAPBOT_PORT=2889
-    depends_on:
-      openwa:
-        condition: service_healthy
+      - "0.0.0.0:2889:2889"
+    env_file:
+      - .env
     restart: unless-stopped
-    networks:
-      - swap-net
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:2889/health')"]
       interval: 30s
       timeout: 5s
       retries: 3
-
-volumes:
-  openwa_data:
-
-networks:
-  swap-net:
-    driver: bridge

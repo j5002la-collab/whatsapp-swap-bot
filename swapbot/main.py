@@ -53,6 +53,7 @@ WEBHOOK_PORT = int(os.getenv("WEBHOOK_PORT", "2889"))
 WALLET_BTC_ADDRESS = os.getenv("WALLET_BTC_ADDRESS", "")
 WALLET_LIGHTNING_ADDRESS = os.getenv("WALLET_LIGHTNING_ADDRESS", "")
 WALLET_BTC_PRIVATE_KEY = os.getenv("WALLET_BTC_PRIVATE_KEY", "")
+BLINK_API_KEY = os.getenv("BLINK_API_KEY", "")
 
 
 def hash_phone(phone: str) -> str:
@@ -102,6 +103,15 @@ async def lifespan(app: FastAPI):
         logger.info(f"BTC wallet loaded: {btc_wallet.derive_address()}")
     else:
         logger.warning("WALLET_BTC_PRIVATE_KEY not set — custodial swaps disabled")
+
+    # Init Blink API for LN→BTC (Lightning receive)
+    if BLINK_API_KEY:
+        from swapbot.blink import init_blink
+        blink = init_blink(BLINK_API_KEY)
+        swap_orchestrator.set_blink(blink)
+        logger.info("Blink API initialized for Lightning receive")
+    else:
+        logger.warning("BLINK_API_KEY not set — LN→BTC via Boltz only")
 
     msg_router = MessageRouter(
         db=db,
@@ -159,6 +169,11 @@ async def lifespan(app: FastAPI):
     wallet = get_btc_wallet()
     if wallet:
         await wallet.close()
+    # Close Blink client
+    from swapbot.blink import get_blink
+    blink = get_blink()
+    if blink:
+        await blink.close()
     if db:
         await db.close()
 

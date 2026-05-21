@@ -50,6 +50,7 @@ class SwapOrchestrator:
         self._active_swaps: set[str] = set()
         self._openwa: OpenWAClient | None = None
         self._btc_wallet = None
+        self._blink = None
 
     def set_ws(self, ws: BoltzWebSocket):
         self._ws = ws
@@ -59,6 +60,158 @@ class SwapOrchestrator:
 
     def set_btc_wallet(self, wallet):
         self._btc_wallet = wallet
+
+    def set_blink(self, blink):
+        self._blink = blink
+
+    async def execute_ln_to_btc_blink(
+        self,
+        phone_hash: str,
+        chat_id: str,
+        dest_address: str,
+        amount: int,
+        fee_breakdown: FeeBreakdown,
+    ) -> str | None:
+        """LN→BTC via Blink: generate LN invoice, user pays, bot sends BTC.
+        
+        No Boltz reverse swap — direct LN receive via Blink.sv.
+        """
+        swap_id = "SWAP-" + secrets.token_hex(6).upper()
+        blink = self._blink
+        btc_wallet = self._btc_wallet
+
+        if not blink or not btc_wallet:
+            logger.error("Blink or BTC wallet not configured")
+            return None
+
+        try:
+            # 1. Generate Blink LN invoice for the amount
+            invoice_data = await blink.create_invoice(amount, memo=f"SwapBot {swap_id}")
+            if not invoice_data:
+                if self._openwa:
+                    await self._openwa.send_text(
+                        chat_id, "⚠️ Error generando invoice LN. Intenta de nuevo."
+                    )
+                return None
+
+            payment_request = invoice_data["paymentRequest"]
+            payment_hash = invoice_data.get("paymentHash", "")
+
+            # 2. Show user the invoice to pay
+            if self._openwa:
+                invoice_msg = (
+                    "━━━━━━━━━━━━━━━━━━━━\n"
+                    "⚡ *Paga esta invoice Lightning*\n"
+                    "━━━━━━━━━━━━━━━━━━━━\n\n"
+                    f"`{payment_request}`\n\n"
+                    f"Monto: {amount:,} sats\n"
+                    f"Recibirás BTC en tu dirección.\n\n"
+                    f"Swap: `{swap_id}`\n"
+                    "⏳ _Esperando tu pago..._"
+                )
+                await self._openwa.send_text(chat_id, invoice_msg)
+
+            # 3. Poll Blink balance until payment arrives
+            initial_balance = await blink.get_btc_balance()
+            if self._openwa:
+                await self._openwa.send_text(
+                    chat_id, "🔍 Esperando confirmación del pago LN..."
+                )
+
+            deadline = asyncio.get_event_loop().time() + 600  # 10 min timeout
+            paid = False
+            while asyncio.get_event_loop().time() < deadline:
+                await asyncio.sleep(5)
+                current = await blink.get_btc_balance()
+                if current >= initial_balance + amount:
+                    paid = True
+                    break
+
+            if not paid:
+                if self._openwa:
+                    await self._openwa.send_text(
+                        chat_id, "⏰ No se detectó tu pago en 10 min. Cancelado."
+                    )
+                return None
+
+            if self._openwa:
+                await self._openwa.send_text(
+                    chat_id, "✅ Pago LN recibido. Enviando BTC a tu dirección..."
+                )
+
+            # 4. Save swap record
+            await create_swap(
+                self.db,
+                swap_id=swap_id,
+                phone_hash=phone_hash,
+                direction="ln_btc",
+                source_currency="BTC",
+                dest_currency="BTC",
+                source_amount=amount,
+                dest_amount=amount - fee_breakdown.commission_amount,
+                status="pending",
+                commission_rate=fee_breakdown.commission_rate,
+                commission_amount=fee_breakdown.commission_amount,
+                boltz_fee_amount=0,
+                boltz_miner_fee=0,
+                raffle_contribution=int(amount * 0.001),
+                user_address=dest_address,
+                user_invoice=payment_request,
+                boltz_status="blink:paid",
+            )
+
+            await self.raffle.add_contribution(self.db, phone_hash, amount)
+
+            # 5. Send BTC from bot wallet to user (minus commission + network fee)
+            forward_fee = 500
+            user_gets = max(
+                amount - fee_breakdown.commission_amount - forward_fee, 5000
+            )
+
+            txid = await btc_wallet.send_btc(dest_address, user_gets)
+            if txid:
+                await update_swap(
+                    self.db,
+                    swap_id,
+                    status="completed",
+                    completed_at=datetime.now(timezone.utc).isoformat(),
+                    completion_tx=txid,
+                )
+                await increment_user_swaps(self.db, phone_hash, amount)
+                if self._openwa:
+                    await self._openwa.send_text(
+                        chat_id,
+                        f"🎉 *¡Swap completado!*\n\n"
+                        f"Recibiste: {user_gets:,} sats\n"
+                        f"TX: `{txid[:16]}...`\n"
+                        f"Comisión: {fee_breakdown.commission_amount:,} sats\n"
+                        f"Swap: `{swap_id}`\n\n"
+                        f"Envía *swap* para un nuevo intercambio."
+                    )
+                logger.info(f"Blink LN→BTC swap completed: {swap_id}")
+                return swap_id
+            else:
+                if self._openwa:
+                    await self._openwa.send_text(
+                        chat_id, "⚠️ Error al enviar BTC. Contactá a soporte."
+                    )
+                return None
+
+        except Exception as e:
+            logger.error(f"Blink LN→BTC error: {e}", exc_info=True)
+            await create_swap(
+                self.db,
+                swap_id=swap_id,
+                phone_hash=phone_hash,
+                direction="ln_btc",
+                source_currency="BTC",
+                dest_currency="BTC",
+                source_amount=amount,
+                boltz_status=f"error: {str(e)[:100]}",
+                status="failed",
+                commission_rate=fee_breakdown.commission_rate if fee_breakdown else 2.5,
+            )
+            return None
 
     async def execute_submarine_swap(
         self,

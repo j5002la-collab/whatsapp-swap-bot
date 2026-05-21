@@ -283,17 +283,28 @@ async def _execute_submarine(router, phone_hash, chat_id, state):
 
 
 async def _execute_reverse(router, phone_hash, chat_id, state):
-    """Execute reverse swap: user pays Lightning invoice → gets BTC on-chain."""
+    """Execute LN→BTC swap: via Blink invoice (fast), fallback to Boltz reverse."""
     await increment_rate_limit(router.db, phone_hash)
 
-    result = await router.swap.execute_reverse_swap(
-        phone_hash=phone_hash,
-        chat_id=chat_id,
-        dest_address=state.session.dest_address,
-        invoice_amount=state.session.source_amount,
-        rate_info=state.session.rate_info,
-        fee_breakdown=state.session.fee_breakdown,
-    )
+    # Prefer Blink if available (instant LN receive, no routing issues)
+    if router.swap._blink:
+        result = await router.swap.execute_ln_to_btc_blink(
+            phone_hash=phone_hash,
+            chat_id=chat_id,
+            dest_address=state.session.dest_address,
+            amount=state.session.source_amount,
+            fee_breakdown=state.session.fee_breakdown,
+        )
+    else:
+        # Fallback to Boltz reverse swap
+        result = await router.swap.execute_reverse_swap(
+            phone_hash=phone_hash,
+            chat_id=chat_id,
+            dest_address=state.session.dest_address,
+            invoice_amount=state.session.source_amount,
+            rate_info=state.session.rate_info,
+            fee_breakdown=state.session.fee_breakdown,
+        )
 
     if not result:
         await router.openwa.send_text(chat_id, service_unavailable())

@@ -129,14 +129,22 @@ class BtcWallet:
                 return None
 
             # Build raw transaction via bitcoinlib
-            t = Transaction(network="bitcoin")
+            t = Transaction(network="bitcoin", fee=500)
             for utxo in selected:
                 t.add_input(
                     prev_txid=utxo["txid"],
                     output_n=utxo["vout"],
+                    value=utxo.get("value", 0),
                     keys=[self.key],
+                    address=self.address,
                 )
             t.add_output(amount_sats, to_address)
+            # Add change output if needed
+            selected_total = sum(u.get("value", 0) for u in selected)
+            fee_estimate = 500
+            change = selected_total - amount_sats - fee_estimate
+            if change > 200:
+                t.add_output(change, self.address)
 
             # Sign
             t.sign()

@@ -17,6 +17,7 @@ from swapbot.bot.messages import (
     swap_completed, swap_failed, admin_menu, admin_stats, admin_unauthorized,
     raffle_status,
 )
+from swapbot.engine.commission import FeeBreakdown
 from swapbot.db.queries import (
     update_user_state, increment_user_swaps, increment_rate_limit,
     get_config, set_config, get_swap_stats, get_all_users,
@@ -233,13 +234,29 @@ async def _process_submarine_swap(router, phone_hash, chat_id, state, amount_sat
         return
 
     fee = router.commission.calculate_fee_breakdown(amount_sats, rate)
-    state.session.source_amount = amount_sats
+    # Total user sends = invoice + commission + boltz miner fee
+    total_user_sends = amount_sats + fee.commission_amount + fee.boltz_miner_fee
+    state.session.source_amount = total_user_sends
     state.session.invoice = invoice
-    state.set_amount(amount_sats, rate, fee)
+    state.set_amount(total_user_sends, rate, fee)
+
+    # Override fee source_amount to show correct total in confirmation
+    confirm_fee = FeeBreakdown(
+        source_amount=total_user_sends,
+        commission_rate=fee.commission_rate,
+        commission_amount=fee.commission_amount,
+        boltz_fee_rate=fee.boltz_fee_rate,
+        boltz_fee_amount=fee.boltz_fee_amount,
+        boltz_miner_fee=fee.boltz_miner_fee,
+        total_fees=fee.total_fees,
+        net_swap_amount=fee.net_swap_amount,
+        estimated_receive=fee.estimated_receive,
+        bot_profit=fee.bot_profit,
+    )
 
     direction_label = "BTC → Lightning ⚡"
     await update_user_state(router.db, phone_hash, json.dumps(state.to_dict()))
-    await router.openwa.send_text(chat_id, confirm_message(fee, direction_label))
+    await router.openwa.send_text(chat_id, confirm_message(confirm_fee, direction_label))
 
 
 async def _execute_submarine(router, phone_hash, chat_id, state):

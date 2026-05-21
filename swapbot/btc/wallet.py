@@ -74,12 +74,16 @@ class BtcWallet:
         timeout_s: int = 1800,
         poll_interval_s: int = 15,
     ) -> dict | None:
-        """Poll until a deposit matching expected_amount arrives with ≥1 confirmation.
+        """Poll until a NEW deposit matching expected_amount arrives with ≥1 confirmation.
         
+        Takes a snapshot of current UTXOs to only count newly arrived deposits.
         Returns tx dict or None on timeout.
         """
         deadline = asyncio.get_event_loop().time() + timeout_s
-        seen_txids: set[str] = set()
+        # Snapshot existing UTXOs to only detect NEW ones
+        existing = await self.get_utxos()
+        seen_txids: set[str] = {u.get("txid", "") for u in existing}
+        logger.debug(f"Deposit wait snapshot: {len(seen_txids)} existing UTXOs")
 
         while asyncio.get_event_loop().time() < deadline:
             utxos = await self.get_utxos()
@@ -90,6 +94,7 @@ class BtcWallet:
                 # Only consider confirmed UTXOs
                 status = utxo.get("status", {})
                 if not status.get("confirmed"):
+                    seen_txids.add(txid)  # track but don't match
                     continue
                 value = utxo.get("value", 0)
                 min_expected = expected_amount_sats * (1 - tolerance_pct / 100)

@@ -234,14 +234,14 @@ async def _process_submarine_swap(router, phone_hash, chat_id, state, amount_sat
         return
 
     fee = router.commission.calculate_fee_breakdown(amount_sats, rate)
-    # Total user sends = invoice + commission + boltz miner fee
-    total_user_sends = amount_sats + fee.commission_amount + fee.boltz_miner_fee
-    state.session.source_amount = total_user_sends
+    # Keep source_amount as invoice amount (engine adds commission+fees internally)
+    state.session.source_amount = amount_sats
     state.session.invoice = invoice
-    state.set_amount(total_user_sends, rate, fee)
+    state.set_amount(amount_sats, rate, fee)
 
-    # Override fee source_amount to show correct total in confirmation
-    confirm_fee = FeeBreakdown(
+    # Calculate total for display only (invoice + commission + boltz miner fee)
+    total_user_sends = amount_sats + fee.commission_amount + fee.boltz_miner_fee
+    display_fee = FeeBreakdown(
         source_amount=total_user_sends,
         commission_rate=fee.commission_rate,
         commission_amount=fee.commission_amount,
@@ -256,7 +256,7 @@ async def _process_submarine_swap(router, phone_hash, chat_id, state, amount_sat
 
     direction_label = "BTC → Lightning ⚡"
     await update_user_state(router.db, phone_hash, json.dumps(state.to_dict()))
-    await router.openwa.send_text(chat_id, confirm_message(confirm_fee, direction_label))
+    await router.openwa.send_text(chat_id, confirm_message(display_fee, direction_label))
 
 
 async def _execute_submarine(router, phone_hash, chat_id, state):

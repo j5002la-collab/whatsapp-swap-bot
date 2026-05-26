@@ -1,61 +1,54 @@
-"""Message router: parse webhook payload, lookup user state, dispatch to handler."""
+"""Message router: parse webhook payload, detect language, lookup user state, dispatch to handler.
+"""
 
 import json
 import logging
-import re
+import hashlib
 from datetime import datetime, timezone
 
 from swapbot.db.connection import Database
 from swapbot.db.queries import (
     get_or_create_user,
     get_user_state,
+    get_user_language,
     update_user_state,
     check_rate_limit,
 )
 from swapbot.openwa.client import OpenWAClient
-from swapbot.boltz.client import BoltzClient
-from swapbot.engine.rates import RateEngine
-from swapbot.engine.commission import CommissionEngine
+from swapbot.changenow.client import ChangeNowClient
 from swapbot.engine.swap import SwapOrchestrator
-from swapbot.engine.raffle import RaffleEngine
 from swapbot.bot.state import UserState, UserStateType
+from swapbot.i18n import detect_language, SUPPORTED_LANGS
 
 logger = logging.getLogger("bot.router")
 
 
 class MessageRouter:
-    """Routes incoming WhatsApp messages to the appropriate handler based on user state."""
+    """Routes incoming WhatsApp messages to the appropriate handler based on user state and content."""
 
     def __init__(
         self,
         db: Database,
         openwa_client: OpenWAClient,
-        boltz_client: BoltzClient,
-        rate_engine: RateEngine,
-        commission_engine: CommissionEngine,
+        cn_client: ChangeNowClient,
         swap_orchestrator: SwapOrchestrator,
-        raffle_engine: RaffleEngine,
         admin_phone: str = "",
     ):
         self.db = db
         self.openwa = openwa_client
-        self.boltz = boltz_client
-        self.rates = rate_engine
-        self.commission = commission_engine
+        self.cn = cn_client
         self.swap = swap_orchestrator
-        self.raffle = raffle_engine
         self.admin_hash = admin_phone
 
-        # Set OpenWA client on swap orchestrator
         self.swap.set_openwa(openwa_client)
 
     async def handle_message(self, payload: dict):
         """Main entry point for message.received webhook."""
         try:
             data = payload.get("data", {})
-            body = (data.get("body", "") or "").strip().lower()
+            body = (data.get("body", "") or "").strip()
             from_phone = data.get("from", "")
-            chat_id = from_phone  # WhatsApp chatId is the from field
+            chat_id = from_phone
             contact_name = data.get("contact", {}).get("pushName", "")
 
             if not body or not from_phone:
@@ -70,11 +63,17 @@ class MessageRouter:
             logger.info(f"📩 {contact_name or from_phone}: {body[:80]}")
 
             # Hash phone for privacy
-            import hashlib
             phone_hash = hashlib.sha256(from_phone.encode()).hexdigest()[:16]
 
+            # Detect language from phone number
+            detected_lang = detect_language(from_phone)
+
             # Get or create user
-            user = await get_or_create_user(self.db, phone_hash)
+            user = await get_or_create_user(self.db, phone_hash, detected_lang)
+
+            # Load language preference (DB overrides auto-detect)
+            db_lang = user.get("language", detected_lang)
+            lang = db_lang if db_lang in SUPPORTED_LANGS else detected_lang
 
             # Load current state
             state_data = await get_user_state(self.db, phone_hash)
@@ -85,7 +84,7 @@ class MessageRouter:
             )
 
             # Dispatch
-            await self._dispatch(phone_hash, chat_id, body, user_state, contact_name)
+            await self._dispatch(phone_hash, chat_id, body.lower(), user_state, lang, from_phone, contact_name)
 
         except Exception as e:
             logger.error(f"Message handler error: {e}", exc_info=True)
@@ -96,105 +95,95 @@ class MessageRouter:
         chat_id: str,
         body: str,
         state: UserState,
+        lang: str,
+        from_phone: str,
         contact_name: str,
     ):
-        """Route message to appropriate handler based on user state and content."""
+        """Route message based on user state and content."""
         from swapbot.bot.handlers import (
             handle_swap_start,
-            handle_direction_selection,
+            handle_source_category,
+            handle_source_currency,
+            handle_source_network,
+            handle_dest_category,
+            handle_dest_currency,
+            handle_dest_network,
             handle_amount_entry,
-            handle_invoice_entry,
-            handle_address_entry,
+            handle_dest_address,
+            handle_extra_id,
             handle_confirmation,
-            handle_rates,
-            handle_calc,
             handle_help,
+            handle_language,
+            handle_status,
             handle_cancel,
             handle_admin,
             handle_default,
-            handle_stablecoin_selection,
-            handle_network_selection,
-            handle_dest_network_selection,
-            handle_address_entry_stable,
-            handle_amount_entry_stable,
-            handle_confirmation_stable,
         )
 
-        # Check if admin command
+        # Admin commands (only from admin phone)
         if phone_hash == self.admin_hash and body.startswith("admin"):
             await handle_admin(
-                self, phone_hash, chat_id, body, state, contact_name
+                self, phone_hash, chat_id, body, state, lang, contact_name
             )
             return
 
-        # Cancel command always available
+        # Cancel always available
         if body in ("cancelar", "cancel"):
-            await handle_cancel(self, phone_hash, chat_id, body, state)
+            await handle_cancel(self, phone_hash, chat_id, body, state, lang)
             return
 
-        # State-based handling
-        if state.state == UserStateType.SELECTING_DIRECTION:
-            await handle_direction_selection(
-                self, phone_hash, chat_id, body, state
-            )
-        elif state.state == UserStateType.SELECTING_STABLECOIN:
-            await handle_stablecoin_selection(
-                self, phone_hash, chat_id, body, state
-            )
-        elif state.state == UserStateType.SELECTING_NETWORK:
-            await handle_network_selection(
-                self, phone_hash, chat_id, body, state
-            )
-        elif state.state == UserStateType.SELECTING_DEST_NETWORK:
-            await handle_dest_network_selection(
-                self, phone_hash, chat_id, body, state
-            )
-        elif state.state == UserStateType.ENTERING_INVOICE:
-            await handle_invoice_entry(
-                self, phone_hash, chat_id, body, state
-            )
-        elif state.state == UserStateType.ENTERING_ADDRESS:
-            await handle_address_entry(
-                self, phone_hash, chat_id, body, state
-            )
-        elif state.state == UserStateType.ENTERING_ADDRESS_STABLE:
-            await handle_address_entry_stable(
-                self, phone_hash, chat_id, body, state
-            )
-        elif state.state == UserStateType.ENTERING_AMOUNT:
-            await handle_amount_entry(
-                self, phone_hash, chat_id, body, state
-            )
-        elif state.state == UserStateType.CONFIRMING:
-            # Check if stablecoin swap
-            if state.session.direction in ("stable_to_btc", "btc_to_stable"):
-                await handle_confirmation_stable(
-                    self, phone_hash, chat_id, body, state
-                )
-            else:
-                await handle_confirmation(
-                    self, phone_hash, chat_id, body, state
-                )
-        elif state.state == UserStateType.AWAITING_PAYMENT:
-            # User is in an active swap - don't start a new one
+        # Language commands
+        if body.startswith(("lang ", "idioma ", "language ")):
+            await handle_language(self, phone_hash, chat_id, body, state, lang)
+            return
+
+        # AWAITING_PAYMENT: user has active swap, show status
+        if state.state == UserStateType.AWAITING_PAYMENT:
+            # Check if it's a status command
+            if body in ("status", "estado", "statut", "estado"):
+                await handle_status(self, phone_hash, chat_id, body, state, lang)
+                return
             await self.openwa.send_text(
                 chat_id,
-                "⏳ Tienes un intercambio en curso. Espera la confirmación.",
+                "⏳ Tienes un intercambio en curso. Envía *status* para ver el progreso."
             )
+            return
+
+        # State-based dispatch
+        state_handlers = {
+            UserStateType.SELECTING_SOURCE_CATEGORY: handle_source_category,
+            UserStateType.SELECTING_SOURCE_CURRENCY: handle_source_currency,
+            UserStateType.SELECTING_SOURCE_NETWORK: handle_source_network,
+            UserStateType.SELECTING_DEST_CATEGORY: handle_dest_category,
+            UserStateType.SELECTING_DEST_CURRENCY: handle_dest_currency,
+            UserStateType.SELECTING_DEST_NETWORK: handle_dest_network,
+            UserStateType.ENTERING_AMOUNT: handle_amount_entry,
+            UserStateType.ENTERING_DEST_ADDRESS: handle_dest_address,
+            UserStateType.CONFIRMING: handle_confirmation,
+        }
+
+        handler = state_handlers.get(state.state)
+        if handler:
+            # Special case: memo/extra_id entry is ENTERING_DEST_ADDRESS with extra_id marker
+            if state.state == UserStateType.ENTERING_DEST_ADDRESS and state.session.extra_id == "required":
+                await handle_extra_id(self, phone_hash, chat_id, body, state, lang)
+                return
+            await handler(self, phone_hash, chat_id, body, state, lang)
+            return
+
+        # IDLE: check for command triggers
+        if body in ("swap", "cambiar", "trocar", "échanger"):
+            if await check_rate_limit(self.db, phone_hash):
+                from swapbot.bot.messages import rate_limited
+                await self.openwa.send_text(chat_id, rate_limited(lang))
+                return
+            await handle_swap_start(self, phone_hash, chat_id, body, state, lang)
+
+        elif body in ("help", "ayuda", "ajuda", "aide", "menu"):
+            await handle_help(self, phone_hash, chat_id, body, state, lang)
+
+        elif body in ("status", "estado", "estado", "statut") or body.startswith(("status ", "estado ", "statut ")):
+            await handle_status(self, phone_hash, chat_id, body, state, lang)
+
         else:
-            # IDLE state: check for command triggers
-            if body in ("swap", "cambiar"):
-                if await check_rate_limit(self.db, phone_hash):
-                    await self.openwa.send_text(
-                        chat_id, "⏳ Límite de 3 swaps/hora. Espera un momento."
-                    )
-                    return
-                await handle_swap_start(self, phone_hash, chat_id, body, state)
-            elif body in ("rates", "tasas"):
-                await handle_rates(self, phone_hash, chat_id, body, state)
-            elif body in ("help", "ayuda"):
-                await handle_help(self, phone_hash, chat_id, body, state)
-            elif body.startswith(("calc", "calcular")):
-                await handle_calc(self, phone_hash, chat_id, body, state)
-            else:
-                await handle_default(self, phone_hash, chat_id, body, state)
+            await handle_default(self, phone_hash, chat_id, body, state, lang)

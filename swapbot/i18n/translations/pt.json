@@ -1,0 +1,94 @@
+{
+  "app": {
+    "name": "🔄 CryptoSwapBot",
+    "tagline": "Trocas crypto instantâneas · Sem custódia · Sem cadastro"
+  },
+  "welcome": {
+    "new_user": "🔄 *CryptoSwapBot*\n\nBem-vindo! Troque criptomoedas instantaneamente pelo WhatsApp.\n\n*Como funciona:*\n1️⃣ Envie *swap* para começar\n2️⃣ Escolha moeda de origem e destino\n3️⃣ Digite o valor\n4️⃣ Confirme e receba o endereço\n5️⃣ Envie seus fundos e receba a confirmação\n\n+900 criptos · Taxas fixas · Sem KYC\n\nEnvie *swap* para sua primeira troca.\nEnvie *ajuda* para ver os comandos.",
+    "returning": "🔄 *CryptoSwapBot*\n\nPronto para outra troca?\n\nEnvie *swap* para começar.\nEnvie *ajuda* para comandos."
+  },
+  "swap": {
+    "start": "🔄 *Troca Crypto*\n\nEscolha como começar:",
+    "popular_pairs": "⭐ *Pares populares:*",
+    "all_categories": "*Todas as categorias:*",
+    "select_source": "📤 *Qual moeda você envia?*\n\nEscolha uma categoria ou digite o nome/ticker:",
+    "select_dest": "📥 *Qual moeda você quer receber?*\n\nEscolha uma categoria ou digite o nome/ticker:",
+    "select_network": "🌐 *Selecione a rede para {currency}*\n\n",
+    "enter_amount": "💰 *{from_currency} → {to_currency}*\n\nDigite o valor em {from_currency}:\nMín: {min_amount} | Máx: {max_amount}\n\nResponda com o número.",
+    "invalid_amount": "❌ Valor inválido. Digite um número válido.",
+    "amount_below_min": "❌ Valor mínimo: {min_amount} {currency}. Tente um valor maior.",
+    "amount_above_max": "❌ Valor máximo: {max_amount} {currency}. Tente um valor menor.",
+    "estimating": "⏳ Calculando a melhor taxa para você...",
+    "confirm": "📋 *Confirmar troca*\n\n📤 Você envia: {from_amount} {from_currency} ({from_network})\n📥 Você recebe: ~{to_amount} {to_currency} ({to_network})\n\n💱 Taxa: 1 {from_currency} = {rate} {to_currency}\n⏱ Tempo estimado: {time_min}-{time_max} minutos\n\nResponda *sim* para confirmar ou *não* para cancelar.",
+    "cancelled": "❌ Troca cancelada. Envie *swap* para uma nova.",
+    "expired": "⏰ Sessão expirada. Envie *swap* para começar novamente.",
+    "creating": "⏳ Criando sua troca...",
+    "created": "━━━━━━━━━━━━━━━━━━━━\n✅ *TROCA CRIADA*\n━━━━━━━━━━━━━━━━━━━━\n\n📤 Envie *{from_amount} {from_currency}* na rede *{from_network}* para:\n\n`{payin_address}`\n{memo}ID: `{exchange_id}`\n\n⏳ _Processando troca..._",
+    "memo_required": "\n⚠️ *Memo/Tag obrigatório:* `{memo}`\n",
+    "status": {
+      "waiting": "⏳ Aguardando seu depósito na rede {network}...\n\nCertifique-se de enviar o valor exato para o endereço informado.",
+      "confirming": "🔍 Confirmando sua transação na rede {network}...\n\nIsso pode levar alguns minutos dependendo do congestionamento.",
+      "exchanging": "🔄 Trocando {from_currency} → {to_currency}...\n\nProcessando na melhor taxa.",
+      "sending": "📤 Enviando {to_currency} para seu endereço na rede {network}...\n\nQuase pronto.",
+      "finished": "🎉 *Troca concluída!*\n\nVocê recebeu {to_amount} {to_currency} no seu endereço.\n\nID: `{exchange_id}`\n\nObrigado por usar CryptoSwapBot 🚀",
+      "failed": "❌ *Troca falhou*\n\nID: `{exchange_id}`\nMotivo: {reason}\n\nSeus fundos serão reembolsados automaticamente.\nEntre em contato com o suporte se precisar de ajuda.",
+      "refunded": "↩️ *Fundos reembolsados*\n\nID: `{exchange_id}`\n\nSeu depósito foi devolvido ao endereço de origem.",
+      "overdue": "⏰ A troca está demorando mais que o esperado.\n\nID: `{exchange_id}`\nStatus: {status}\n\nVou notificar quando for concluída."
+    },
+    "completed": "🎉 Troca concluída com sucesso!\n\nEnvie *swap* para outra troca.",
+    "error": "⚠️ Erro ao processar a troca. Tente novamente em alguns minutos."
+  },
+  "commands": {
+    "swap": "swap",
+    "cambiar": "trocar",
+    "help": "ajuda",
+    "ayuda": "ajuda",
+    "status": "status",
+    "historial": "histórico",
+    "lang": "idioma",
+    "idioma": "idioma",
+    "cancel": "cancelar",
+    "si": "sim",
+    "no": "não"
+  },
+  "help": {
+    "title": "❓ *Ajuda CryptoSwapBot*\n\n",
+    "commands": "*Comandos disponíveis:*\n• *swap* ou *trocar* — Iniciar uma troca\n• *ajuda* — Este menu\n• *status* — Ver status de trocas ativas\n• *idioma pt|en|es|fr* — Mudar idioma\n• *cancelar* — Cancelar troca em andamento\n\n",
+    "howto": "*Como trocar?*\n1️⃣ Envie *swap*\n2️⃣ Escolha moeda de origem (o que envia)\n3️⃣ Escolha a rede de origem\n4️⃣ Escolha moeda de destino (o que recebe)\n5️⃣ Escolha a rede de destino\n6️⃣ Digite o valor\n7️⃣ Confirme a taxa\n8️⃣ Envie para o endereço informado\n9️⃣ Receba confirmação automática\n\n",
+    "faq": "*FAQ:*\n❓ É seguro? — Sim, 100%. ChangeNOW não detém seus fundos.\n❓ Quanto tempo? — 2-30 min dependendo da rede.\n❓ KYC? — Não. Sem cadastro ou verificação.\n❓ Taxa? — Incluída na taxa exibida.\n\nMais dúvidas? Entre em contato com o suporte."
+  },
+  "status_cmd": {
+    "no_swaps": "📋 Você não tem trocas ativas.\n\nEnvie *swap* para começar uma.",
+    "header": "📊 *Suas trocas ativas*\n\n",
+    "swap_line": "• `{swap_id}`: {from_amt} {from_cur} → {to_cur} | {status}",
+    "swap_detail": "📋 *Detalhe da troca*\n\nID: `{exchange_id}`\nDe: {from_amount} {from_currency} ({from_network})\nPara: {to_amount} {to_currency} ({to_network})\nStatus: {status}\n\nEnvie *ajuda* para mais comandos."
+  },
+  "language": {
+    "current": "🌐 Seu idioma atual: {language}\n\nDisponíveis: pt (Português), es (Español), en (English), fr (Français)",
+    "changed": "✅ Idioma alterado para: {language}",
+    "invalid": "❌ Idioma não suportado. Use: pt, en, es, fr"
+  },
+  "categories": {
+    "popular": "⭐ Populares",
+    "btc": "₿ Bitcoin & Variantes",
+    "stablecoins": "💵 Stablecoins",
+    "l1l2": "🔷 L1 / L2",
+    "defi": "🏦 DeFi",
+    "meme": "🐕 Meme",
+    "privacy": "🔒 Privacidade",
+    "other": "📋 Outros",
+    "search": "🔍 Buscar"
+  },
+  "errors": {
+    "service_down": "⚠️ Serviço temporariamente indisponível. Tente novamente em alguns minutos.",
+    "rate_limit": "⏳ Limite de 5 trocas por hora. Aguarde um momento.",
+    "invalid_choice": "❌ Opção inválida. Selecione um número válido.",
+    "generic": "❌ Algo deu errado. Tente novamente ou use *ajuda*."
+  },
+  "admin": {
+    "menu": "🤖 *Painel Admin*\n\n• *admin stats* — Estatísticas\n• *admin users* — Usuários\n• *admin broadcast <msg>* — Mensagem para todos",
+    "stats": "📊 *Estatísticas*\n\n*Hoje:* {today_swaps} trocas · {today_volume} vol\n*Total:* {total_swaps} trocas · {total_volume} vol\n*Usuários:* {total_users}",
+    "users": "👥 *Usuários ativos hoje:* {active}\n*Total de usuários:* {total}",
+    "unauthorized": "⛔ Não autorizado."
+  }
+}

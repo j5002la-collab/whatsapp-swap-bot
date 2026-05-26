@@ -1,0 +1,94 @@
+{
+  "app": {
+    "name": "🔄 CryptoSwapBot",
+    "tagline": "Instant crypto swaps · Non-custodial · No registration"
+  },
+  "welcome": {
+    "new_user": "🔄 *CryptoSwapBot*\n\nWelcome! Swap crypto instantly from WhatsApp.\n\n*How it works:*\n1️⃣ Send *swap* to start\n2️⃣ Choose source & destination currency\n3️⃣ Enter the amount\n4️⃣ Confirm and get the address\n5️⃣ Send your funds and receive confirmation\n\n900+ cryptos · Fixed rates · No KYC\n\nSend *swap* for your first exchange.\nSend *help* for all commands.",
+    "returning": "🔄 *CryptoSwapBot*\n\nReady for another swap?\n\nSend *swap* to start.\nSend *help* for commands."
+  },
+  "swap": {
+    "start": "🔄 *Crypto Swap*\n\nChoose how to start:",
+    "popular_pairs": "⭐ *Popular pairs:*",
+    "all_categories": "*All categories:*",
+    "select_source": "📤 *Which currency are you sending?*\n\nChoose a category or type the name/ticker:",
+    "select_dest": "📥 *Which currency do you want to receive?*\n\nChoose a category or type the name/ticker:",
+    "select_network": "🌐 *Select network for {currency}*\n\n",
+    "enter_amount": "💰 *{from_currency} → {to_currency}*\n\nEnter the amount in {from_currency}:\nMin: {min_amount} | Max: {max_amount}\n\nReply with the number.",
+    "invalid_amount": "❌ Invalid amount. Please enter a valid number.",
+    "amount_below_min": "❌ Minimum amount: {min_amount} {currency}. Try a larger amount.",
+    "amount_above_max": "❌ Maximum amount: {max_amount} {currency}. Try a smaller amount.",
+    "estimating": "⏳ Calculating the best rate for you...",
+    "confirm": "📋 *Confirm swap*\n\n📤 You send: {from_amount} {from_currency} ({from_network})\n📥 You receive: ~{to_amount} {to_currency} ({to_network})\n\n💱 Rate: 1 {from_currency} = {rate} {to_currency}\n⏱ Estimated time: {time_min}-{time_max} min\n\nReply *yes* to confirm or *no* to cancel.",
+    "cancelled": "❌ Swap cancelled. Send *swap* for a new one.",
+    "expired": "⏰ Session expired. Send *swap* to start again.",
+    "creating": "⏳ Creating your swap...",
+    "created": "━━━━━━━━━━━━━━━━━━━━\n✅ *SWAP CREATED*\n━━━━━━━━━━━━━━━━━━━━\n\n📤 Send *{from_amount} {from_currency}* on *{from_network}* to:\n\n`{payin_address}`\n{memo}ID: `{exchange_id}`\n\n⏳ _Processing swap..._",
+    "memo_required": "\n⚠️ *Memo/Tag required:* `{memo}`\n",
+    "status": {
+      "waiting": "⏳ Waiting for your deposit on {network} network...\n\nMake sure to send the exact amount to the provided address.",
+      "confirming": "🔍 Confirming your transaction on {network} network...\n\nThis may take a few minutes depending on congestion.",
+      "exchanging": "🔄 Swapping {from_currency} → {to_currency}...\n\nProcessing at the best rate.",
+      "sending": "📤 Sending {to_currency} to your address on {network}...\n\nAlmost done.",
+      "finished": "🎉 *Swap completed!*\n\nYou received {to_amount} {to_currency} at your address.\n\nID: `{exchange_id}`\n\nThanks for using CryptoSwapBot 🚀",
+      "failed": "❌ *Swap failed*\n\nID: `{exchange_id}`\nReason: {reason}\n\nYour funds will be automatically refunded.\nContact support if needed.",
+      "refunded": "↩️ *Funds refunded*\n\nID: `{exchange_id}`\n\nYour deposit has been returned to the source address.",
+      "overdue": "⏰ The swap is taking longer than expected.\n\nID: `{exchange_id}`\nStatus: {status}\n\nI'll notify you when it completes."
+    },
+    "completed": "🎉 Swap completed successfully!\n\nSend *swap* for another exchange.",
+    "error": "⚠️ Error processing swap. Try again in a few minutes."
+  },
+  "commands": {
+    "swap": "swap",
+    "cambiar": "swap",
+    "help": "help",
+    "ayuda": "help",
+    "status": "status",
+    "historial": "history",
+    "lang": "lang",
+    "idioma": "language",
+    "cancel": "cancel",
+    "si": "yes",
+    "no": "no"
+  },
+  "help": {
+    "title": "❓ *CryptoSwapBot Help*\n\n",
+    "commands": "*Available commands:*\n• *swap* — Start an exchange\n• *help* — This menu\n• *status* — View active swap status\n• *lang en|es|pt|fr* — Change language\n• *cancel* — Cancel current swap\n\n",
+    "howto": "*How to swap?*\n1️⃣ Send *swap*\n2️⃣ Choose source currency (what you send)\n3️⃣ Choose source network\n4️⃣ Choose destination currency (what you receive)\n5️⃣ Choose destination network\n6️⃣ Enter the amount\n7️⃣ Confirm the rate\n8️⃣ Send to the provided address\n9️⃣ Receive automatic confirmation\n\n",
+    "faq": "*FAQ:*\n❓ Is it safe? — Yes, 100%. ChangeNOW does not hold your funds.\n❓ How long? — 2-30 min depending on the network.\n❓ KYC? — No. No registration or verification.\n❓ Fee? — Included in the displayed rate.\n\nMore questions? Contact support."
+  },
+  "status_cmd": {
+    "no_swaps": "📋 You have no active swaps.\n\nSend *swap* to start one.",
+    "header": "📊 *Your active swaps*\n\n",
+    "swap_line": "• `{swap_id}`: {from_amt} {from_cur} → {to_cur} | {status}",
+    "swap_detail": "📋 *Swap Detail*\n\nID: `{exchange_id}`\nFrom: {from_amount} {from_currency} ({from_network})\nTo: {to_amount} {to_currency} ({to_network})\nStatus: {status}\n\nSend *help* for more commands."
+  },
+  "language": {
+    "current": "🌐 Your current language: {language}\n\nAvailable: es (Spanish), en (English), pt (Portuguese), fr (French)",
+    "changed": "✅ Language changed to: {language}",
+    "invalid": "❌ Unsupported language. Use: en, es, pt, fr"
+  },
+  "categories": {
+    "popular": "⭐ Popular",
+    "btc": "₿ Bitcoin & Variants",
+    "stablecoins": "💵 Stablecoins",
+    "l1l2": "🔷 L1 / L2",
+    "defi": "🏦 DeFi",
+    "meme": "🐕 Meme",
+    "privacy": "🔒 Privacy",
+    "other": "📋 Others",
+    "search": "🔍 Search"
+  },
+  "errors": {
+    "service_down": "⚠️ Service temporarily unavailable. Try again in a few minutes.",
+    "rate_limit": "⏳ Rate limit: 5 swaps per hour. Please wait.",
+    "invalid_choice": "❌ Invalid choice. Please select a valid number.",
+    "generic": "❌ Something went wrong. Try again or use *help*."
+  },
+  "admin": {
+    "menu": "🤖 *Admin Panel*\n\n• *admin stats* — Statistics\n• *admin users* — Users\n• *admin broadcast <msg>* — Message all users",
+    "stats": "📊 *Statistics*\n\n*Today:* {today_swaps} swaps · {today_volume} vol\n*Total:* {total_swaps} swaps · {total_volume} vol\n*Users:* {total_users}",
+    "users": "👥 *Active users today:* {active}\n*Total users:* {total}",
+    "unauthorized": "⛔ Unauthorized."
+  }
+}

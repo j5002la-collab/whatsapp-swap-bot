@@ -1,9 +1,35 @@
+# ═══════════════════════════════════════
+# CryptoSwapBot v2 — Docker Compose
+# ═══════════════════════════════════════
+#
+# USO EN UMBREL: network_mode: "host" (línea 15)
+# Descomenta la línea y comenta los ports (línea 11-12)
+#
+# Si tienes OpenWA en otro contenedor, usa la opción de red compartida (abajo)
+# ═══════════════════════════════════════
+
 services:
   swapbot:
     build: .
     container_name: swapbot
+    # ── Opción A: Umbrel modo host (más simple) ──
+    # Descomenta esto y comenta "ports" si usas modo host:
+    # network_mode: host
+    #
+    # ── Opción B: Red bridge normal (no-Umbrel) ──
     ports:
       - "0.0.0.0:2889:2889"
     env_file:
       - .env
     restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+
+# ── Opción C: Red compartida con OpenWA ──
+# Si ambos están en el mismo docker-compose o red nombrada,
+# descomenta esto y usa el nombre del servicio en .env:
+#
+# networks:
+#   default:
+#     name: openwa_network
+#     external: true

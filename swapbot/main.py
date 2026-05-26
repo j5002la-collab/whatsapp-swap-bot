@@ -1,6 +1,8 @@
 """
 FastAPI application with webhook receiver for WhatsApp messages.
 Receives webhooks from OpenWA, dispatches to bot logic, calls OpenWA API to reply.
+
+v2: ChangeNOW-first universal swap bot with i18n.
 """
 
 import hashlib
@@ -14,19 +16,13 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Request, HTTPException, status
 
 from swapbot.openwa.client import OpenWAClient
-from swapbot.openwa.webhook import create_webhook_router
 from swapbot.db.connection import Database
 from swapbot.db.queries import init_db
 from swapbot.bot.router import MessageRouter
-from swapbot.boltz.client import BoltzClient
-from swapbot.boltz.websocket import BoltzWebSocket
-from swapbot.engine.rates import RateEngine
-from swapbot.engine.commission import CommissionEngine
+from swapbot.changenow.client import ChangeNowClient, init_cn_client, get_cn_client
 from swapbot.engine.swap import SwapOrchestrator
-from swapbot.engine.raffle import RaffleEngine
-from swapbot.btc.wallet import init_btc_wallet
+from swapbot.i18n import load_translations
 from swapbot.jobs.cleanup import start_cleanup_scheduler, stop_cleanup_scheduler
-from swapbot.jobs.raffle_draw import start_raffle_scheduler, stop_raffle_scheduler
 
 load_dotenv()
 
@@ -43,17 +39,12 @@ logger = logging.getLogger("swapbot")
 OPENWA_API_URL = os.getenv("OPENWA_API_URL", "http://localhost:2785/api")
 OPENWA_API_KEY = os.getenv("OPENWA_API_KEY", "")
 OPENWA_SESSION_ID = os.getenv("OPENWA_SESSION_ID", "sess_default")
-BOLTZ_API_URL = os.getenv("BOLTZ_API_URL", "https://api.boltz.exchange")
+CHANGENOW_API_KEY = os.getenv("CHANGENOW_API_KEY", "")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "change-me")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "http://localhost:2889/webhook")
 ADMIN_PHONE = os.getenv("ADMIN_PHONE", "")
-COMMISSION_RATE = float(os.getenv("COMMISSION_RATE", "2.5"))
 DATABASE_PATH = os.getenv("DATABASE_PATH", "./data/swapbot.db")
 WEBHOOK_PORT = int(os.getenv("WEBHOOK_PORT", "2889"))
-WALLET_BTC_ADDRESS = os.getenv("WALLET_BTC_ADDRESS", "")
-WALLET_LIGHTNING_ADDRESS = os.getenv("WALLET_LIGHTNING_ADDRESS", "")
-WALLET_BTC_PRIVATE_KEY = os.getenv("WALLET_BTC_PRIVATE_KEY", "")
-BLINK_API_KEY = os.getenv("BLINK_API_KEY", "")
 
 
 def hash_phone(phone: str) -> str:
@@ -63,127 +54,100 @@ def hash_phone(phone: str) -> str:
 
 # --- Global state ---
 openwa_client: OpenWAClient | None = None
-boltz_client: BoltzClient | None = None
-boltz_ws: BoltzWebSocket | None = None
+cn_client: ChangeNowClient | None = None
 db: Database | None = None
 msg_router: MessageRouter | None = None
-rate_engine: RateEngine | None = None
-commission_engine: CommissionEngine | None = None
 swap_orchestrator: SwapOrchestrator | None = None
-raffle_engine: RaffleEngine | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown lifecycle."""
-    global openwa_client, boltz_client, boltz_ws, db, msg_router
-    global rate_engine, commission_engine, swap_orchestrator, raffle_engine
+    global openwa_client, cn_client, db, msg_router, swap_orchestrator
 
     # Startup
-    logger.info("🚀 Starting WhatsApp SwapBot...")
+    logger.info("🚀 Starting CryptoSwapBot v2 (ChangeNOW)...")
 
+    # Load i18n translations
+    load_translations()
+
+    # Database
     db_path = os.path.expandvars(DATABASE_PATH)
     os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
     db = Database(db_path)
     await db.connect()
     await init_db(db)
 
+    # OpenWA
     openwa_client = OpenWAClient(OPENWA_API_URL, OPENWA_API_KEY, OPENWA_SESSION_ID)
-    boltz_client = BoltzClient(BOLTZ_API_URL)
 
-    rate_engine = RateEngine(boltz_client)
-    commission_engine = CommissionEngine(COMMISSION_RATE)
-    raffle_engine = RaffleEngine()
-    swap_orchestrator = SwapOrchestrator(boltz_client, db, commission_engine, raffle_engine)
+    # ChangeNOW
+    if not CHANGENOW_API_KEY:
+        logger.error("CHANGENOW_API_KEY is required! Set it in .env")
+        raise RuntimeError("CHANGENOW_API_KEY not configured")
+    
+    cn_client = init_cn_client(CHANGENOW_API_KEY)
 
-    # Init BTC wallet if configured
-    if WALLET_BTC_PRIVATE_KEY:
-        btc_wallet = init_btc_wallet(WALLET_BTC_PRIVATE_KEY)
-        swap_orchestrator.set_btc_wallet(btc_wallet)
-        logger.info(f"BTC wallet loaded: {btc_wallet.derive_address()}")
-    else:
-        logger.warning("WALLET_BTC_PRIVATE_KEY not set — custodial swaps disabled")
+    # Fetch available currencies at startup
+    try:
+        currencies = await cn_client.fetch_currencies()
+        logger.info(f"Loaded {len(currencies)} currencies from ChangeNOW")
+    except Exception as e:
+        logger.warning(f"Could not fetch currencies at startup: {e}")
 
-    # Init Blink API for LN→BTC (Lightning receive)
-    if BLINK_API_KEY:
-        from swapbot.blink import init_blink
-        blink = init_blink(BLINK_API_KEY)
-        swap_orchestrator.set_blink(blink)
-        logger.info("Blink API initialized for Lightning receive")
-    else:
-        logger.warning("BLINK_API_KEY not set — LN→BTC via Boltz only")
+    # Swap orchestrator
+    swap_orchestrator = SwapOrchestrator(cn_client, db)
 
+    # Message router
     msg_router = MessageRouter(
         db=db,
         openwa_client=openwa_client,
-        boltz_client=boltz_client,
-        rate_engine=rate_engine,
-        commission_engine=commission_engine,
+        cn_client=cn_client,
         swap_orchestrator=swap_orchestrator,
-        raffle_engine=raffle_engine,
-        admin_phone=hash_phone(ADMIN_PHONE),
+        admin_phone=hash_phone(ADMIN_PHONE) if ADMIN_PHONE else "",
     )
 
-    # Register webhook with OpenWA on startup
+    # Register webhook with OpenWA
     try:
         await openwa_client.register_webhook(WEBHOOK_URL, WEBHOOK_SECRET)
         logger.info(f"Webhook registered: {WEBHOOK_URL}")
     except Exception as e:
         logger.warning(f"Could not register webhook: {e}")
 
-    # Connect Boltz WebSocket
-    boltz_ws = BoltzWebSocket(BOLTZ_API_URL)
-    swap_orchestrator.set_ws(boltz_ws)
-    asyncio.create_task(boltz_ws.connect())
-
-    # Initialize ChangeNOW client for stablecoin swaps
-    changenow_key = os.getenv("CHANGENOW_API_KEY", "")
-    if changenow_key:
-        from swapbot.changenow.client import init_cn_client, get_cn_client
-        init_cn_client(changenow_key)
-        logger.info("ChangeNOW client initialized for USDT/USDC swaps")
-    else:
-        logger.warning("CHANGENOW_API_KEY not set — stablecoin swaps disabled")
-
-    # Start scheduled jobs
+    # Scheduled jobs
     start_cleanup_scheduler(db)
-    start_raffle_scheduler(raffle_engine, db)
 
-    logger.info("✅ SwapBot ready")
+    # Periodic currency cache refresh (every 6 hours)
+    async def refresh_currencies():
+        while True:
+            await asyncio.sleep(6 * 3600)
+            try:
+                if cn_client:
+                    await cn_client.fetch_currencies(force=True)
+            except Exception as e:
+                logger.error(f"Currency refresh error: {e}")
+
+    asyncio.create_task(refresh_currencies())
+
+    logger.info("✅ CryptoSwapBot v2 ready")
 
     yield
 
     # Shutdown
     logger.info("🛑 Shutting down...")
     stop_cleanup_scheduler()
-    stop_raffle_scheduler()
-    if boltz_ws:
-        await boltz_ws.disconnect()
-    # Close ChangeNOW client
-    from swapbot.changenow.client import get_cn_client
-    cn = get_cn_client()
-    if cn:
-        await cn.close()
-    # Close BTC wallet
-    from swapbot.btc.wallet import get_btc_wallet
-    wallet = get_btc_wallet()
-    if wallet:
-        await wallet.close()
-    # Close Blink client
-    from swapbot.blink import get_blink
-    blink = get_blink()
-    if blink:
-        await blink.close()
+    if cn_client:
+        await cn_client.close()
     if db:
         await db.close()
 
 
-app = FastAPI(title="WhatsApp SwapBot", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="CryptoSwapBot v2", version="2.0.0", lifespan=lifespan)
 
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "whatsapp-swapbot"}
+    return {"status": "ok", "service": "cryptoswapbot-v2"}
 
 
 @app.post("/webhook")

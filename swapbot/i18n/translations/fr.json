@@ -1,0 +1,94 @@
+{
+  "app": {
+    "name": "🔄 CryptoSwapBot",
+    "tagline": "Échanges crypto instantanés · Sans garde · Sans inscription"
+  },
+  "welcome": {
+    "new_user": "🔄 *CryptoSwapBot*\n\nBienvenue ! Échangez des cryptos instantanément depuis WhatsApp.\n\n*Comment ça marche :*\n1️⃣ Envoyez *swap* pour commencer\n2️⃣ Choisissez la devise source et destination\n3️⃣ Saisissez le montant\n4️⃣ Confirmez et recevez l'adresse\n5️⃣ Envoyez vos fonds et recevez la confirmation\n\n+900 cryptos · Taux fixes · Sans KYC\n\nEnvoyez *swap* pour votre premier échange.\nEnvoyez *aide* pour tous les commandes.",
+    "returning": "🔄 *CryptoSwapBot*\n\nPrêt pour un autre échange ?\n\nEnvoyez *swap* pour commencer.\nEnvoyez *aide* pour les commandes."
+  },
+  "swap": {
+    "start": "🔄 *Échange Crypto*\n\nChoisissez comment commencer :",
+    "popular_pairs": "⭐ *Paires populaires :*",
+    "all_categories": "*Toutes les catégories :*",
+    "select_source": "📤 *Quelle devise envoyez-vous ?*\n\nChoisissez une catégorie ou tapez le nom/ticker :",
+    "select_dest": "📥 *Quelle devise voulez-vous recevoir ?*\n\nChoisissez une catégorie ou tapez le nom/ticker :",
+    "select_network": "🌐 *Sélectionnez le réseau pour {currency}*\n\n",
+    "enter_amount": "💰 *{from_currency} → {to_currency}*\n\nSaisissez le montant en {from_currency} :\nMin : {min_amount} | Max : {max_amount}\n\nRépondez avec le nombre.",
+    "invalid_amount": "❌ Montant invalide. Veuillez entrer un nombre valide.",
+    "amount_below_min": "❌ Montant minimum : {min_amount} {currency}. Essayez un montant plus élevé.",
+    "amount_above_max": "❌ Montant maximum : {max_amount} {currency}. Essayez un montant plus petit.",
+    "estimating": "⏳ Calcul du meilleur taux pour vous...",
+    "confirm": "📋 *Confirmer l'échange*\n\n📤 Vous envoyez : {from_amount} {from_currency} ({from_network})\n📥 Vous recevez : ~{to_amount} {to_currency} ({to_network})\n\n💱 Taux : 1 {from_currency} = {rate} {to_currency}\n⏱ Temps estimé : {time_min}-{time_max} min\n\nRépondez *oui* pour confirmer ou *non* pour annuler.",
+    "cancelled": "❌ Échange annulé. Envoyez *swap* pour un nouveau.",
+    "expired": "⏰ Session expirée. Envoyez *swap* pour recommencer.",
+    "creating": "⏳ Création de votre échange...",
+    "created": "━━━━━━━━━━━━━━━━━━━━\n✅ *ÉCHANGE CRÉÉ*\n━━━━━━━━━━━━━━━━━━━━\n\n📤 Envoyez *{from_amount} {from_currency}* sur *{from_network}* à :\n\n`{payin_address}`\n{memo}ID : `{exchange_id}`\n\n⏳ _Traitement de l'échange..._",
+    "memo_required": "\n⚠️ *Memo/Tag requis :* `{memo}`\n",
+    "status": {
+      "waiting": "⏳ En attente de votre dépôt sur le réseau {network}...\n\nAssurez-vous d'envoyer le montant exact à l'adresse indiquée.",
+      "confirming": "🔍 Confirmation de votre transaction sur le réseau {network}...\n\nCela peut prendre quelques minutes selon la congestion.",
+      "exchanging": "🔄 Échange {from_currency} → {to_currency}...\n\nTraitement au meilleur taux.",
+      "sending": "📤 Envoi de {to_currency} à votre adresse sur {network}...\n\nPresque terminé.",
+      "finished": "🎉 *Échange terminé !*\n\nVous avez reçu {to_amount} {to_currency} à votre adresse.\n\nID : `{exchange_id}`\n\nMerci d'utiliser CryptoSwapBot 🚀",
+      "failed": "❌ *Échec de l'échange*\n\nID : `{exchange_id}`\nRaison : {reason}\n\nVos fonds seront automatiquement remboursés.\nContactez le support si besoin.",
+      "refunded": "↩️ *Fonds remboursés*\n\nID : `{exchange_id}`\n\nVotre dépôt a été retourné à l'adresse source.",
+      "overdue": "⏰ L'échange prend plus de temps que prévu.\n\nID : `{exchange_id}`\nStatut : {status}\n\nJe vous notifierai quand il sera terminé."
+    },
+    "completed": "🎉 Échange terminé avec succès !\n\nEnvoyez *swap* pour un autre échange.",
+    "error": "⚠️ Erreur lors du traitement de l'échange. Réessayez dans quelques minutes."
+  },
+  "commands": {
+    "swap": "swap",
+    "cambiar": "échanger",
+    "help": "aide",
+    "ayuda": "aide",
+    "status": "statut",
+    "historial": "historique",
+    "lang": "langue",
+    "idioma": "langue",
+    "cancel": "annuler",
+    "si": "oui",
+    "no": "non"
+  },
+  "help": {
+    "title": "❓ *Aide CryptoSwapBot*\n\n",
+    "commands": "*Commandes disponibles :*\n• *swap* ou *échanger* — Démarrer un échange\n• *aide* — Ce menu\n• *statut* — Voir le statut des échanges actifs\n• *langue fr|en|es|pt* — Changer la langue\n• *annuler* — Annuler l'échange en cours\n\n",
+    "howto": "*Comment échanger ?*\n1️⃣ Envoyez *swap*\n2️⃣ Choisissez la devise source (ce que vous envoyez)\n3️⃣ Choisissez le réseau source\n4️⃣ Choisissez la devise destination (ce que vous recevez)\n5️⃣ Choisissez le réseau destination\n6️⃣ Saisissez le montant\n7️⃣ Confirmez le taux\n8️⃣ Envoyez à l'adresse indiquée\n9️⃣ Recevez la confirmation automatique\n\n",
+    "faq": "*FAQ :*\n❓ Est-ce sûr ? — Oui, 100 %. ChangeNOW ne détient pas vos fonds.\n❓ Combien de temps ? — 2-30 min selon le réseau.\n❓ KYC ? — Non. Pas d'inscription ni de vérification.\n❓ Frais ? — Inclus dans le taux affiché.\n\nPlus de questions ? Contactez le support."
+  },
+  "status_cmd": {
+    "no_swaps": "📋 Vous n'avez aucun échange actif.\n\nEnvoyez *swap* pour en commencer un.",
+    "header": "📊 *Vos échanges actifs*\n\n",
+    "swap_line": "• `{swap_id}`: {from_amt} {from_cur} → {to_cur} | {status}",
+    "swap_detail": "📋 *Détail de l'échange*\n\nID : `{exchange_id}`\nDe : {from_amount} {from_currency} ({from_network})\nVers : {to_amount} {to_currency} ({to_network})\nStatut : {status}\n\nEnvoyez *aide* pour plus de commandes."
+  },
+  "language": {
+    "current": "🌐 Votre langue actuelle : {language}\n\nDisponibles : fr (Français), en (English), es (Español), pt (Português)",
+    "changed": "✅ Langue changée en : {language}",
+    "invalid": "❌ Langue non supportée. Utilisez : fr, en, es, pt"
+  },
+  "categories": {
+    "popular": "⭐ Populaires",
+    "btc": "₿ Bitcoin & Variantes",
+    "stablecoins": "💵 Stablecoins",
+    "l1l2": "🔷 L1 / L2",
+    "defi": "🏦 DeFi",
+    "meme": "🐕 Meme",
+    "privacy": "🔒 Confidentialité",
+    "other": "📋 Autres",
+    "search": "🔍 Rechercher"
+  },
+  "errors": {
+    "service_down": "⚠️ Service temporairement indisponible. Réessayez dans quelques minutes.",
+    "rate_limit": "⏳ Limite de 5 échanges par heure. Veuillez patienter.",
+    "invalid_choice": "❌ Choix invalide. Veuillez sélectionner un numéro valide.",
+    "generic": "❌ Une erreur s'est produite. Réessayez ou utilisez *aide*."
+  },
+  "admin": {
+    "menu": "🤖 *Panneau Admin*\n\n• *admin stats* — Statistiques\n• *admin users* — Utilisateurs\n• *admin broadcast <msg>* — Message à tous",
+    "stats": "📊 *Statistiques*\n\n*Aujourd'hui :* {today_swaps} échanges · {today_volume} vol\n*Total :* {total_swaps} échanges · {total_volume} vol\n*Utilisateurs :* {total_users}",
+    "users": "👥 *Utilisateurs actifs aujourd'hui :* {active}\n*Total utilisateurs :* {total}",
+    "unauthorized": "⛔ Non autorisé."
+  }
+}

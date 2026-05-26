@@ -1,1 +1,2 @@
-"""Business logic engine package."""
+"""Swap engine — ChangeNOW-based swap orchestration."""
+from .swap import SwapOrchestrator

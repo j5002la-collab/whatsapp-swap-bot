@@ -1,1 +1,1 @@
-"""Scheduled jobs package."""
+"""Scheduled tasks."""

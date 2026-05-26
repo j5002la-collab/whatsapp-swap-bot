@@ -1,23 +1,22 @@
-"""User state machine for WhatsApp swap flow."""
+"""User state machine for WhatsApp swap flow.
+Updated for ChangeNOW universal swap flow with i18n.
+"""
 
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
-from swapbot.engine.rates import RateInfo
-from swapbot.engine.commission import FeeBreakdown
-
 
 class UserStateType(Enum):
     IDLE = "idle"
-    SELECTING_DIRECTION = "selecting_direction"
-    SELECTING_STABLECOIN = "selecting_stablecoin"
-    SELECTING_NETWORK = "selecting_network"
+    SELECTING_SOURCE_CATEGORY = "selecting_source_category"
+    SELECTING_SOURCE_CURRENCY = "selecting_source_currency"
+    SELECTING_SOURCE_NETWORK = "selecting_source_network"
+    SELECTING_DEST_CATEGORY = "selecting_dest_category"
+    SELECTING_DEST_CURRENCY = "selecting_dest_currency"
     SELECTING_DEST_NETWORK = "selecting_dest_network"
     ENTERING_AMOUNT = "entering_amount"
-    ENTERING_INVOICE = "entering_invoice"
-    ENTERING_ADDRESS = "entering_address"
-    ENTERING_ADDRESS_STABLE = "entering_address_stable"
+    ENTERING_DEST_ADDRESS = "entering_dest_address"
     CONFIRMING = "confirming"
     AWAITING_PAYMENT = "awaiting_payment"
     COMPLETE = "complete"
@@ -26,25 +25,28 @@ class UserStateType(Enum):
 @dataclass
 class SwapSession:
     """Active swap session data for a user."""
-    direction: str | None = None          # btc_ln, ln_btc, stable_to_btc, btc_to_stable
-    source_amount: int | None = None      # in sats or cents
-    dest_amount: int | None = None
-    invoice: str | None = None            # Lightning invoice
-    dest_address: str | None = None       # BTC on-chain address
-    rate_info: RateInfo | None = None
-    fee_breakdown: FeeBreakdown | None = None
+    # Source
+    from_ticker: str | None = None
+    from_network: str | None = None
+    # Destination
+    to_ticker: str | None = None
+    to_network: str | None = None
+    # Amounts
+    from_amount: str | None = None
+    to_amount: str | None = None
+    rate: float = 0.0
+    rate_id: str | None = None
+    # Address
+    dest_address: str | None = None
+    extra_id: str | None = None
+    # Result
     swap_id: str | None = None
-    boltz_address: str | None = None      # Boltz deposit address
-    boltz_expected_amount: int | None = None
-    # Stablecoin fields
-    stable_currency: str | None = None    # "USDT" or "USDC"
-    stable_network: str | None = None     # e.g. "TRC-20", "ERC-20"
-    stable_dest_network: str | None = None
-    stable_source_amount: float | None = None  # in USDT/USDC units
-    stable_dest_amount: float | None = None
-    stable_rate_id: str | None = None     # ChangeNOW rateId
-    stable_payin_address: str | None = None
-    stable_memo: str | None = None        # Memo/tag for some chains
+    exchange_id: str | None = None
+    payin_address: str | None = None
+    # UI state
+    source_category_page: int = 0
+    dest_category_page: int = 0
+    current_category: str = "popular"
 
 
 @dataclass
@@ -54,31 +56,45 @@ class UserState:
     state: UserStateType = UserStateType.IDLE
     session: SwapSession = field(default_factory=SwapSession)
 
-    def start_direction_selection(self):
-        """Transition to direction selection."""
-        self.state = UserStateType.SELECTING_DIRECTION
+    def start_swap(self):
+        """Start a new swap flow."""
+        self.state = UserStateType.SELECTING_SOURCE_CATEGORY
         self.session = SwapSession()
 
-    def select_stablecoin_direction(self, direction: str):
-        """User selected stablecoin direction."""
-        self.session.direction = direction
-        self.state = UserStateType.SELECTING_STABLECOIN
+    def select_source_category(self, category: str):
+        self.session.current_category = category
+        self.state = UserStateType.SELECTING_SOURCE_CURRENCY
 
-    def select_direction(self, direction: str):
-        """User selected a swap direction."""
-        self.session.direction = direction
-        if direction == "btc_ln":
-            self.state = UserStateType.ENTERING_INVOICE
-        elif direction == "ln_btc":
-            self.state = UserStateType.ENTERING_ADDRESS
-        else:
-            self.state = UserStateType.ENTERING_AMOUNT
+    def select_source_currency(self, ticker: str):
+        self.session.from_ticker = ticker
+        self.state = UserStateType.SELECTING_SOURCE_NETWORK
 
-    def set_amount(self, amount: int, rate_info: RateInfo, fee: FeeBreakdown):
-        """User entered an amount, ready for confirmation."""
-        self.session.source_amount = amount
-        self.session.rate_info = rate_info
-        self.session.fee_breakdown = fee
+    def select_source_network(self, network: str):
+        self.session.from_network = network
+        self.state = UserStateType.SELECTING_DEST_CATEGORY
+
+    def select_dest_category(self, category: str):
+        self.session.current_category = category
+        self.state = UserStateType.SELECTING_DEST_CURRENCY
+
+    def select_dest_currency(self, ticker: str):
+        self.session.to_ticker = ticker
+        self.state = UserStateType.SELECTING_DEST_NETWORK
+
+    def select_dest_network(self, network: str):
+        self.session.to_network = network
+        self.state = UserStateType.ENTERING_AMOUNT
+
+    def set_amount_estimation(self, from_amount: str, to_amount: str, rate: float, rate_id: str):
+        self.session.from_amount = from_amount
+        self.session.to_amount = to_amount
+        self.session.rate = rate
+        self.session.rate_id = rate_id
+        self.state = UserStateType.ENTERING_DEST_ADDRESS
+
+    def set_dest_address(self, address: str, extra_id: str | None = None):
+        self.session.dest_address = address
+        self.session.extra_id = extra_id
         self.state = UserStateType.CONFIRMING
 
     def confirm(self):
@@ -94,52 +110,38 @@ class UserState:
         self.state = UserStateType.IDLE
         self.session = SwapSession()
 
+    def quick_select_pair(self, from_ticker: str, to_ticker: str, from_network: str):
+        """Quick select a popular pair, skipping category selection."""
+        self.session.from_ticker = from_ticker
+        self.session.to_ticker = to_ticker
+        self.session.from_network = from_network
+        self.state = UserStateType.SELECTING_DEST_NETWORK
+
     def to_dict(self) -> dict:
         """Serialize to JSON-friendly dict for storage."""
-        d = {
+        return {
             "state": self.state.value,
-            "direction": self.session.direction,
-            "source_amount": self.session.source_amount,
-            "invoice": self.session.invoice,
+            "from_ticker": self.session.from_ticker,
+            "from_network": self.session.from_network,
+            "to_ticker": self.session.to_ticker,
+            "to_network": self.session.to_network,
+            "from_amount": self.session.from_amount,
+            "to_amount": self.session.to_amount,
+            "rate": self.session.rate,
+            "rate_id": self.session.rate_id,
             "dest_address": self.session.dest_address,
+            "extra_id": self.session.extra_id,
             "swap_id": self.session.swap_id,
-            "stable_currency": self.session.stable_currency,
-            "stable_network": self.session.stable_network,
-            "stable_dest_network": self.session.stable_dest_network,
-            "stable_source_amount": self.session.stable_source_amount,
-            "stable_dest_amount": self.session.stable_dest_amount,
-            "stable_rate_id": self.session.stable_rate_id,
+            "exchange_id": self.session.exchange_id,
+            "payin_address": self.session.payin_address,
+            "source_category_page": self.session.source_category_page,
+            "dest_category_page": self.session.dest_category_page,
+            "current_category": self.session.current_category,
         }
-        if self.session.rate_info:
-            d["rate_info"] = {
-                "boltz_rate": self.session.rate_info.boltz_rate,
-                "user_rate": self.session.rate_info.user_rate,
-                "boltz_fee_pct": self.session.rate_info.boltz_fee_pct,
-                "boltz_miner_fee": self.session.rate_info.boltz_miner_fee,
-                "bot_commission_pct": self.session.rate_info.bot_commission_pct,
-                "min_amount": self.session.rate_info.min_amount,
-                "max_amount": self.session.rate_info.max_amount,
-                "pair_hash": self.session.rate_info.pair_hash,
-            }
-        if self.session.fee_breakdown:
-            d["fee_breakdown"] = {
-                "source_amount": self.session.fee_breakdown.source_amount,
-                "commission_rate": self.session.fee_breakdown.commission_rate,
-                "commission_amount": self.session.fee_breakdown.commission_amount,
-                "boltz_fee_rate": self.session.fee_breakdown.boltz_fee_rate,
-                "boltz_fee_amount": self.session.fee_breakdown.boltz_fee_amount,
-                "boltz_miner_fee": self.session.fee_breakdown.boltz_miner_fee,
-                "total_fees": self.session.fee_breakdown.total_fees,
-                "net_swap_amount": self.session.fee_breakdown.net_swap_amount,
-                "estimated_receive": self.session.fee_breakdown.estimated_receive,
-                "bot_profit": self.session.fee_breakdown.bot_profit,
-            }
-        return d
 
     @classmethod
     def from_dict(cls, phone_hash: str, data: dict) -> "UserState":
         """Deserialize from stored dict."""
-        from swapbot.engine.rates import RateInfo
         us = cls(phone_hash=phone_hash)
         state_str = data.get("state", "idle")
         try:
@@ -147,45 +149,20 @@ class UserState:
         except ValueError:
             us.state = UserStateType.IDLE
 
-        us.session.direction = data.get("direction")
-        us.session.source_amount = data.get("source_amount")
-        us.session.invoice = data.get("invoice")
+        us.session.from_ticker = data.get("from_ticker")
+        us.session.from_network = data.get("from_network")
+        us.session.to_ticker = data.get("to_ticker")
+        us.session.to_network = data.get("to_network")
+        us.session.from_amount = data.get("from_amount")
+        us.session.to_amount = data.get("to_amount")
+        us.session.rate = data.get("rate", 0)
+        us.session.rate_id = data.get("rate_id")
         us.session.dest_address = data.get("dest_address")
+        us.session.extra_id = data.get("extra_id")
         us.session.swap_id = data.get("swap_id")
-        us.session.stable_currency = data.get("stable_currency")
-        us.session.stable_network = data.get("stable_network")
-        us.session.stable_dest_network = data.get("stable_dest_network")
-        us.session.stable_source_amount = data.get("stable_source_amount")
-        us.session.stable_dest_amount = data.get("stable_dest_amount")
-        us.session.stable_rate_id = data.get("stable_rate_id")
-
-        # Restore rate_info
-        if data.get("rate_info"):
-            ri = data["rate_info"]
-            us.session.rate_info = RateInfo(
-                boltz_rate=ri.get("boltz_rate", 0),
-                user_rate=ri.get("user_rate", 0),
-                boltz_fee_pct=ri.get("boltz_fee_pct", 0),
-                boltz_miner_fee=ri.get("boltz_miner_fee", 0),
-                bot_commission_pct=ri.get("bot_commission_pct", 0),
-                min_amount=ri.get("min_amount", 0),
-                max_amount=ri.get("max_amount", 0),
-                pair_hash=ri.get("pair_hash", ""),
-            )
-        # Restore fee_breakdown
-        if data.get("fee_breakdown"):
-            from swapbot.engine.commission import FeeBreakdown
-            fb = data["fee_breakdown"]
-            us.session.fee_breakdown = FeeBreakdown(
-                source_amount=fb.get("source_amount", 0),
-                commission_rate=fb.get("commission_rate", 0),
-                commission_amount=fb.get("commission_amount", 0),
-                boltz_fee_rate=fb.get("boltz_fee_rate", 0),
-                boltz_fee_amount=fb.get("boltz_fee_amount", 0),
-                boltz_miner_fee=fb.get("boltz_miner_fee", 0),
-                total_fees=fb.get("total_fees", 0),
-                net_swap_amount=fb.get("net_swap_amount", 0),
-                estimated_receive=fb.get("estimated_receive", 0),
-                bot_profit=fb.get("bot_profit", 0),
-            )
+        us.session.exchange_id = data.get("exchange_id")
+        us.session.payin_address = data.get("payin_address")
+        us.session.source_category_page = data.get("source_category_page", 0)
+        us.session.dest_category_page = data.get("dest_category_page", 0)
+        us.session.current_category = data.get("current_category", "popular")
         return us
